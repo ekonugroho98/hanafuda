@@ -1,5 +1,6 @@
-import axios from 'axios';
-import fs from 'fs';
+const axios = require('axios');
+const fs = require('fs');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 
 function printBanner() {
   console.log("Hanafuda Bot Auto Grow");
@@ -51,11 +52,18 @@ function saveTokens(tokens) {
     process.exit(1);
   }
 }
+function createAxiosInstance(proxyUrl) {
+  return axios.create({
+    httpsAgent: proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined,
+    timeout: 30000
+  });
+}
 
 async function refreshTokenHandler(accounts) {
-  consolewithTime('Mencoba merefresh token...');
+  consolewithTime('Mencoba merefresh token...')
+  const axiosInstance = createAxiosInstance(accounts.proxy);
   try {
-    const response = await axios.post(REFRESH_URL, null, {
+    const response = await axiosInstance.post(REFRESH_URL, null, {
       params: {
         grant_type: 'refresh_token',
         refresh_token: accounts.refreshToken,

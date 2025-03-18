@@ -1,5 +1,6 @@
-import axios from 'axios';
-import fs from 'fs';
+const axios = require('axios');
+const fs = require('fs');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 
 function printBanner() {
     console.log("Hanafuda Bot Auto Draw")
@@ -9,7 +10,6 @@ function consolewithTime(word) {
     const now = new Date().toISOString().split('.')[0].replace('T', ' ');
     console.log(`[${now}] ${word}`);
 }
-
 const REQUEST_URL = 'https://hanafuda-backend-app-520478841386.us-central1.run.app/graphql';
 const REFRESH_URL = 'https://securetoken.googleapis.com/v1/token?key=AIzaSyDipzN0VRfTPnMGhQ5PSzO27Cxm3DohJGY';
 const CONFIG = './config.json';
@@ -51,10 +51,18 @@ function saveTokens(tokens) {
   }
 }
 
+function createAxiosInstance(proxyUrl) {
+  return axios.create({
+    httpsAgent: proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined,
+    timeout: 30000
+  });
+}
+
 async function refreshTokenHandler(accounts) {
   consolewithTime('Mencoba merefresh token...')
+  const axiosInstance = createAxiosInstance(accounts.proxy);
   try {
-    const response = await axios.post(REFRESH_URL, null, {
+    const response = await axiosInstance.post(REFRESH_URL, null, {
       params: {
         grant_type: 'refresh_token',
         refresh_token: accounts.refreshToken,
