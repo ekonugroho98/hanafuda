@@ -257,7 +257,7 @@ const executeGardenRewardPayload = {
 async function executeGardenRewardActions() {
   while (true) {
       consolewithTime('Memulai draw untuk semua akun secara berurutan...');
-      
+      getAccounts();
       for (let account of accounts) {
           consolewithTime(`Memproses akun: ${account.userName || 'Unknown User'}...`);
           await processAccount(account);
@@ -272,5 +272,4 @@ async function executeGardenRewardActions() {
 }
 
 printBanner();
-getAccounts();
 executeGardenRewardActions();

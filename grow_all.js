@@ -231,7 +231,7 @@ async function processAccount(account) {
 async function executeGrowActions() {
   while (true) {
     consolewithTime('Memulai grow untuk semua akun...');
-    
+    getAccounts();
     for (let account of accounts) {
       await processAccount(account);
     }
@@ -242,5 +242,4 @@ async function executeGrowActions() {
 }
 
 printBanner();
-getAccounts();
 executeGrowActions();
