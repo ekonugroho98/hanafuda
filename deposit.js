@@ -274,7 +274,6 @@ async function processTransactions(accountData, transactionCount, amountInEther)
   }
 }
 
-// Fungsi baru untuk pemrosesan paralel
 async function processAccountsInParallel(accounts, transactionCount, depositAmount) {
   const processPromises = accounts.map(account =>
     processTransactions(account, transactionCount, depositAmount)
@@ -287,39 +286,67 @@ async function processAccountsInParallel(accounts, transactionCount, depositAmou
   logWithTimestamp('All accounts have been processed in parallel.');
 }
 
+// Fungsi delay baru
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 async function initialize() {
   const accounts = loadAccounts();
   
-  userInput.question('Enter number of transactions: ', async (txCountInput) => {
-    const transactionCount = parseInt(txCountInput);
+  async function processCycle() {
+    userInput.question('Enter number of transactions: ', async (txCountInput) => {
+      const transactionCount = parseInt(txCountInput);
 
-    if (isNaN(transactionCount) || transactionCount <= 0) {
-      logWithTimestamp('Invalid transaction count.');
-      userInput.close();
-      return;
-    }
-
-    userInput.question('Do you want to use the default amount of 0.0000000000001 ETH? (y/n): ', async (useDefault) => {
-      let depositAmount = '0.0000000000001';
-
-      if (useDefault.toLowerCase() !== 'y') {
-        userInput.question('Enter amount to deposit (in ETH): ', async (amountInput) => {
-          const parsedAmount = parseFloat(amountInput);
-          if (!isNaN(parsedAmount) && parsedAmount > 0) {
-            depositAmount = amountInput;
-          } else {
-            logWithTimestamp('Invalid amount entered. Using default amount.');
-          }
-          userInput.close();
-          await processAccountsInParallel(accounts, transactionCount, depositAmount); // Ganti ke paralel
-        });
-      } else {
+      if (isNaN(transactionCount) || transactionCount <= 0) {
+        logWithTimestamp('Invalid transaction count.');
         userInput.close();
-        await processAccountsInParallel(accounts, transactionCount, depositAmount); // Ganti ke paralel
+        return;
       }
+
+      userInput.question('Do you want to use the default amount of 0.0000000000001 ETH? (y/n): ', async (useDefault) => {
+        let depositAmount = '0.0000000000001';
+
+        if (useDefault.toLowerCase() !== 'y') {
+          userInput.question('Enter amount to deposit (in ETH): ', async (amountInput) => {
+            const parsedAmount = parseFloat(amountInput);
+            if (!isNaN(parsedAmount) && parsedAmount > 0) {
+              depositAmount = amountInput;
+            } else {
+              logWithTimestamp('Invalid amount entered. Using default amount.');
+            }
+            await executeCycles(transactionCount, depositAmount);
+          });
+        } else {
+          await executeCycles(transactionCount, depositAmount);
+        }
+      });
     });
-  });
+  }
+
+  async function executeCycles(transactionCount, depositAmount) {
+    let cycleCount = 1;
+    process.on('SIGINT', () => {
+      logWithTimestamp('Process terminated by user');
+      userInput.close();
+      process.exit(0);
+    });
+
+    while (true) {
+      logWithTimestamp(`Starting transaction cycle #${cycleCount}...`);
+      await processAccountsInParallel(accounts, transactionCount, depositAmount);
+      
+      logWithTimestamp(`Cycle #${cycleCount} completed. Waiting for 1 hour before next cycle (Press Ctrl+C to exit)...`);
+      cycleCount++;
+      await delay(60 * 60 * 1000); // Delay 1 jam
+    }
+  }
+
+  await processCycle();
 }
 
 displayBanner();
-initialize();
+initialize().catch(error => {
+  logWithTimestamp(`Error in main execution: ${error.message}`);
+  process.exit(1);
+});
