@@ -80,7 +80,7 @@ function updateConfigFile(tokens) {
 function createAxiosInstance(proxyUrl) {
   return axios.create({
     httpsAgent: proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined,
-    timeout: 30000
+    timeout: 60000
   });
 }
 
@@ -149,13 +149,27 @@ async function synchronizeTransaction(txHash, accountData) {
         }
       );
 
+      logWithTimestamp(`Raw server response for tx ${txHash}: ${JSON.stringify(response.data, null, 2)}`);
+
       if (response.data?.data?.syncEthereumTx) {
         logWithTimestamp(`Transaction ${txHash} successfully synchronized for ${accountData.userName}.`);
         break;
+      } else if (response.data?.errors?.some(error => error.message.includes('Already registered transaction'))) {
+        logWithTimestamp(`Transaction ${txHash} already registered for ${accountData.userName}. No further action needed.`);
+        break;
+      } else {
+        throw new Error('Synchronization failed - Invalid response from server');
       }
-      throw new Error('Synchronization failed');
     } catch (error) {
       logWithTimestamp(`Attempt ${attempt} - Failed to sync transaction ${txHash} for ${accountData.userName}: ${error.message}`);
+      if (error.response) {
+        logWithTimestamp(`Server Response - Status: ${error.response.status} ${error.response.statusText}`);
+        logWithTimestamp(`Server Response - Data: ${JSON.stringify(error.response.data, null, 2)}`);
+      } else if (error.request) {
+        logWithTimestamp('No response received from server (network issue or timeout)');
+      } else {
+        logWithTimestamp(`Error during request setup: ${error.message}`);
+      }
 
       if (attempt === MAX_RETRIES) {
         logWithTimestamp('Attempting token refresh...');
@@ -163,6 +177,7 @@ async function synchronizeTransaction(txHash, accountData) {
         if (newToken) {
           accountData.authToken = newToken;
           logWithTimestamp('Token successfully refreshed...');
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
           attempt--;
           continue;
         }
@@ -229,11 +244,26 @@ async function processTransactions(accountData, transactionCount, amountInEther)
         const signedTransaction = await web3.eth.accounts.signTransaction(transaction, privateKey);
         const receipt = await web3.eth.sendSignedTransaction(signedTransaction.rawTransaction);
 
+        if (!receipt.status) {
+          logWithTimestamp(`Transaction ${i + 1} for ${userName} (${walletAddress}) failed on-chain with hash: ${receipt.transactionHash}`);
+          i--;
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          continue;
+        }
+
+        const confirmedReceipt = await web3.eth.getTransactionReceipt(receipt.transactionHash);
+        if (!confirmedReceipt || !confirmedReceipt.status) {
+          logWithTimestamp(`Transaction ${i + 1} for ${userName} (${walletAddress}) not confirmed or failed on-chain with hash: ${receipt.transactionHash}`);
+          i--;
+          await new Promise(resolve => setTimeout(resolve, 5000));
+          continue;
+        }
+
         logWithTimestamp(`Transaction ${i + 1} for ${userName} (${walletAddress}) successful with hash: ${receipt.transactionHash}`);
         await synchronizeTransaction(receipt.transactionHash, accountData);
       } catch (error) {
         logWithTimestamp(`Transaction ${i + 1} failed for ${userName} (${walletAddress}): ${error.message}`);
-        i--; // Retry the failed transaction
+        i--;
         await new Promise(resolve => setTimeout(resolve, 5000));
       }
     }
@@ -244,11 +274,17 @@ async function processTransactions(accountData, transactionCount, amountInEther)
   }
 }
 
-async function processAccountsSequentially(accounts, transactionCount, depositAmount) {
-  for (const account of accounts) {
-    await processTransactions(account, transactionCount, depositAmount);
-  }
-  logWithTimestamp('All accounts have been processed.');
+// Fungsi baru untuk pemrosesan paralel
+async function processAccountsInParallel(accounts, transactionCount, depositAmount) {
+  const processPromises = accounts.map(account =>
+    processTransactions(account, transactionCount, depositAmount)
+      .catch(error => {
+        logWithTimestamp(`Error processing account ${account.userName}: ${error.message}`);
+      })
+  );
+
+  await Promise.all(processPromises);
+  logWithTimestamp('All accounts have been processed in parallel.');
 }
 
 async function initialize() {
@@ -275,11 +311,11 @@ async function initialize() {
             logWithTimestamp('Invalid amount entered. Using default amount.');
           }
           userInput.close();
-          await processAccountsSequentially(accounts, transactionCount, depositAmount);
+          await processAccountsInParallel(accounts, transactionCount, depositAmount); // Ganti ke paralel
         });
       } else {
         userInput.close();
-        await processAccountsSequentially(accounts, transactionCount, depositAmount);
+        await processAccountsInParallel(accounts, transactionCount, depositAmount); // Ganti ke paralel
       }
     });
   });
