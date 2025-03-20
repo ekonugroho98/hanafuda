@@ -54,7 +54,7 @@ function saveTokens(tokens) {
 function createAxiosInstance(proxyUrl) {
   return axios.create({
     httpsAgent: proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined,
-    timeout: 30000
+    timeout: 120000
   });
 }
 
@@ -146,7 +146,6 @@ const executeGardenRewardPayload = {
   
       const userName = response.data?.data?.currentUser?.name;
       if (userName) {
-        account.userName = userName;
         return userName;
       } else {
         throw new Error('User name not found in response');
@@ -164,29 +163,29 @@ const executeGardenRewardPayload = {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': account.authToken,
-        }
+        },
       });
+      consolewithTime(`Response from server: ${JSON.stringify(response.data)}`); // Log respons lengkap
       const gardenRewardActionCount = response.data?.data?.getGardenForCurrentUser?.gardenStatus?.gardenRewardActionCount;
-
+  
       if (typeof gardenRewardActionCount === 'number') {
         consolewithTime(`${account.userName || 'User'} Draw tersedia: ${gardenRewardActionCount}`);
         return gardenRewardActionCount;
       } else {
-        throw new Error('Error');
+        throw new Error('Invalid gardenRewardActionCount in response');
       }
     } catch (error) {
-      consolewithTime(`${account.userName || 'User'} Token Expired!`);
-  
+      consolewithTime(`${account.userName || 'User'} Token Expired! Error: ${error.message}`);
       if (retryOnFailure) {
-        const tokenRefreshed = await refreshTokenHandler(account);
-        if (tokenRefreshed) {
+        const newAuthToken = await refreshTokenHandler(account);
+        if (newAuthToken) {
+          account.authToken = newAuthToken;
           return getLoopCount(account, false);
         }
       }
       return 0;
     }
   }
-
   async function initiateDrawAction(account) {
     try {
       consolewithTime(`${account.userName || 'User'} Initiating Draw...`);

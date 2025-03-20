@@ -143,7 +143,6 @@ async function getCurrentUser(account) {
 
     const userName = response.data?.data?.currentUser?.name;
     if (userName) {
-      account.userName = userName;
       return userName;
     } else {
       throw new Error('User name not found in response');
