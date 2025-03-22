@@ -236,7 +236,7 @@ async function executeGrowActions() {
     }
 
     consolewithTime('Semua akun telah terproses. Menunggu 1 jam untuk proses selanjutnya');
-    await new Promise(resolve => setTimeout(resolve, 3600000));
+    await new Promise(resolve => setTimeout(resolve, 1200000));
   }
 }
 

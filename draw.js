@@ -266,7 +266,7 @@ async function executeGardenRewardActions() {
       }
 
       consolewithTime('Semua akun telah terproses secara berurutan. Menunggu 1 jam untuk siklus berikutnya');
-      await new Promise(resolve => setTimeout(resolve, 3600000)); // Tunggu 1 jam
+      await new Promise(resolve => setTimeout(resolve, 1200000)); // Tunggu 1 jam
   }
 }
 

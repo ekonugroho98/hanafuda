@@ -305,7 +305,7 @@ async function initialize() {
       }
 
       userInput.question('Do you want to use the default amount of 0.0000000000001 ETH? (y/n): ', async (useDefault) => {
-        let depositAmount = '0.0000000000001';
+        let depositAmount = '0.0000000000000001';
 
         if (useDefault.toLowerCase() !== 'y') {
           userInput.question('Enter amount to deposit (in ETH): ', async (amountInput) => {
