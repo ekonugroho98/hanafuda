@@ -3,6 +3,7 @@ const fs = require('fs');
 const readline = require('readline');
 const Web3 = require('web3');
 const { HttpsProxyAgent } = require('https-proxy-agent');
+const pLimit = require('p-limit');
 
 function displayBanner() {
   console.log('\x1b[34m', '██     ██ ██ ███    ██ ███████ ███    ██ ██ ██████  ');
@@ -199,11 +200,27 @@ async function waitForOptimalGasFee(gasLimit) {
 
     if (parseFloat(transactionFee) > MAX_FEE_THRESHOLD) {
       logWithTimestamp(`Transaction fee: ${transactionFee} ETH, waiting for lower fee...`);
-      await new Promise(resolve => setTimeout(resolve, 5000));
+      await new Promise(resolve => setTimeout(resolve, 10000));
     }
   } while (parseFloat(transactionFee) > MAX_FEE_THRESHOLD);
 
   return gasPrice;
+}
+
+async function withRetry(fn, maxRetries = 3, baseDelay = 5000) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error.message.includes("over rate limit") && attempt < maxRetries) {
+        const delay = baseDelay * Math.pow(2, attempt); // Exponential backoff
+        logWithTimestamp(`Rate limit hit, retrying in ${delay / 1000} seconds... (Attempt ${attempt}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        throw error; // Lempar error jika bukan rate limit atau sudah max retries
+      }
+    }
+  }
 }
 
 async function processTransactions(accountData, transactionCount, amountInEther) {
@@ -227,8 +244,8 @@ async function processTransactions(accountData, transactionCount, amountInEther)
 
     for (let i = 0; i < transactionCount; i++) {
       try {
-        const nonce = await web3.eth.getTransactionCount(walletAddress, 'pending');
-        const gasLimit = await contract.methods.depositETH().estimateGas({ from: walletAddress, value: amountInWei });
+        const nonce = await withRetry(() => web3.eth.getTransactionCount(walletAddress, 'pending'));
+        const gasLimit = await withRetry(() => contract.methods.depositETH().estimateGas({ from: walletAddress, value: amountInWei }));
         const gasPrice = await waitForOptimalGasFee(gasLimit);
 
         const transaction = {
@@ -242,20 +259,20 @@ async function processTransactions(accountData, transactionCount, amountInEther)
         };
 
         const signedTransaction = await web3.eth.accounts.signTransaction(transaction, privateKey);
-        const receipt = await web3.eth.sendSignedTransaction(signedTransaction.rawTransaction);
+        const receipt = await withRetry(() => web3.eth.sendSignedTransaction(signedTransaction.rawTransaction));
 
         if (!receipt.status) {
           logWithTimestamp(`Transaction ${i + 1} for ${userName} (${walletAddress}) failed on-chain with hash: ${receipt.transactionHash}`);
           i--;
-          await new Promise(resolve => setTimeout(resolve, 5000));
+          await new Promise(resolve => setTimeout(resolve, 2000));
           continue;
         }
 
-        const confirmedReceipt = await web3.eth.getTransactionReceipt(receipt.transactionHash);
+        const confirmedReceipt = await withRetry(() => web3.eth.getTransactionReceipt(receipt.transactionHash));
         if (!confirmedReceipt || !confirmedReceipt.status) {
           logWithTimestamp(`Transaction ${i + 1} for ${userName} (${walletAddress}) not confirmed or failed on-chain with hash: ${receipt.transactionHash}`);
           i--;
-          await new Promise(resolve => setTimeout(resolve, 5000));
+          await new Promise(resolve => setTimeout(resolve, 2000));
           continue;
         }
 
@@ -264,7 +281,7 @@ async function processTransactions(accountData, transactionCount, amountInEther)
       } catch (error) {
         logWithTimestamp(`Transaction ${i + 1} failed for ${userName} (${walletAddress}): ${error.message}`);
         i--;
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
     }
 
@@ -274,18 +291,41 @@ async function processTransactions(accountData, transactionCount, amountInEther)
   }
 }
 
+async function loadPLimit() {
+  const { default: pLimit } = await import('p-limit');
+  return pLimit;
+}
+
 async function processAccountsInParallel(accounts, transactionCount, depositAmount) {
+  // Catat waktu mulai
+  const startTime = Date.now();
+
+  const pLimit = await loadPLimit(); // Memuat pLimit secara dinamis
+  const limit = pLimit(2); // Batasi hanya 2 akun yang diproses secara paralel
   const processPromises = accounts.map(account =>
-    processTransactions(account, transactionCount, depositAmount)
-      .catch(error => {
-        logWithTimestamp(`Error processing account ${account.userName}: ${error.message}`);
-      })
+    limit(() =>
+      processTransactions(account, transactionCount, depositAmount)
+        .catch(error => {
+          logWithTimestamp(`Error processing account ${account.userName}: ${error.message}`);
+        })
+    )
   );
 
   await Promise.all(processPromises);
-  logWithTimestamp('All accounts have been processed in parallel.');
-}
 
+  // Catat waktu selesai dan hitung durasi
+  const endTime = Date.now();
+  const durationMs = endTime - startTime;
+  
+  // Konversi durasi ke format menit dan detik
+  const durationSeconds = Math.floor(durationMs / 1000);
+  const minutes = Math.floor(durationSeconds / 60);
+  const seconds = durationSeconds % 60;
+
+  // Tampilkan durasi
+  logWithTimestamp(`All accounts have been processed with limited parallelism.`);
+  logWithTimestamp(`Time taken to process all accounts: ${minutes} minutes and ${seconds} seconds (${durationMs} milliseconds).`);
+}
 // Fungsi delay baru
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -336,9 +376,9 @@ async function initialize() {
       logWithTimestamp(`Starting transaction cycle #${cycleCount}...`);
       await processAccountsInParallel(accounts, transactionCount, depositAmount);
       
-      logWithTimestamp(`Cycle #${cycleCount} completed. Waiting for 1 hour before next cycle (Press Ctrl+C to exit)...`);
+      logWithTimestamp(`Cycle #${cycleCount} completed. Waiting for 10 minutes before next cycle (Press Ctrl+C to exit)...`);
       cycleCount++;
-      await delay(60 * 60 * 1000); // Delay 1 jam
+      await delay(10 * 60 * 1000); // Delay 1 jam
     }
   }
 
