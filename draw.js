@@ -6,10 +6,47 @@ function printBanner() {
     console.log("Hanafuda Bot Auto Draw")
 }
 
+const USER_AGENTS = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Linux; Android 14; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.36",
+  "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_6_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Fedora; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Linux x86_64; rv:134.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Linux; Android 12; SM-A525F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Linux; Android 11; Redmi Note 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
+  "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+];
+
 function consolewithTime(word) {
     const now = new Date().toISOString().split('.')[0].replace('T', ' ');
     console.log(`[${now}] ${word}`);
 }
+
+function getRandomUserAgent() {
+  const randomIndex = Math.floor(Math.random() * USER_AGENTS.length);
+  return USER_AGENTS[randomIndex];
+}
+
+function getPlatformFromUserAgent(userAgent) {
+  if (userAgent.includes('Windows')) return '"Windows"';
+  if (userAgent.includes('Macintosh') || userAgent.includes('Mac OS')) return '"macOS"';
+  if (userAgent.includes('Linux')) return '"Linux"';
+  if (userAgent.includes('Android')) return '"Android"';
+  return '"macOS"';
+}
+
 const REQUEST_URL = 'https://hanafuda-backend-app-520478841386.us-central1.run.app/graphql';
 const REFRESH_URL = 'https://securetoken.googleapis.com/v1/token?key=AIzaSyDipzN0VRfTPnMGhQ5PSzO27Cxm3DohJGY';
 const CONFIG = './config.json';
@@ -24,10 +61,14 @@ function getAccounts() {
       if (tokensData.refreshToken) {
         accounts = [{
           refreshToken: tokensData.refreshToken,
-          authToken: tokensData.authToken
+          authToken: tokensData.authToken,
+          userAgent: getRandomUserAgent() // Tetapkan User-Agent untuk akun tunggal
         }];
       } else {
-        accounts = Object.values(tokensData);
+        accounts = Object.values(tokensData).map(account => ({
+          ...account,
+          userAgent: getRandomUserAgent() // Tetapkan User-Agent untuk setiap akun
+        }));
       }
       consolewithTime(`Mendapatkan ${accounts.length} Akun didalam config`);
       return JSON.parse(data);
@@ -141,6 +182,17 @@ const executeGardenRewardPayload = {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': account.authToken,
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Origin': 'https://hanafuda.hana.network',
+          'Priority': 'u=1, i',
+          'Referer': 'https://hanafuda.hana.network/',
+          'Sec-Ch-Ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(account.userAgent), // Dinamis berdasarkan User-Agent
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'cross-site',
+          'User-Agent': account.userAgent
         }
       });
   
@@ -151,7 +203,7 @@ const executeGardenRewardPayload = {
         throw new Error('User name not found in response');
       }
     } catch (error) {
-      consolewithTime(`Error fetching current user data: ${error.message}`, 'error');
+      consolewithTime(`Error fetching current user data: ${error.message}`);
       return null;
     }
   }
@@ -163,9 +215,20 @@ const executeGardenRewardPayload = {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': account.authToken,
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Origin': 'https://hanafuda.hana.network',
+          'Priority': 'u=1, i',
+          'Referer': 'https://hanafuda.hana.network/',
+          'Sec-Ch-Ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(account.userAgent), // Dinamis berdasarkan User-Agent
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'cross-site',
+          'User-Agent': account.userAgent
         },
       });
-      consolewithTime(`Response from server: ${JSON.stringify(response.data)}`); // Log respons lengkap
+      consolewithTime(`Response from server: ${JSON.stringify(response.data)}`);
       const gardenRewardActionCount = response.data?.data?.getGardenForCurrentUser?.gardenStatus?.gardenRewardActionCount;
   
       if (typeof gardenRewardActionCount === 'number') {
@@ -189,11 +252,22 @@ const executeGardenRewardPayload = {
   async function initiateDrawAction(account) {
     try {
       consolewithTime(`${account.userName || 'User'} Initiating Draw...`);
-
+  
       const response = await axios.post(REQUEST_URL, executeGardenRewardPayload, {
         headers: {
           'Content-Type': 'application/json',
           'Authorization': account.authToken,
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Origin': 'https://hanafuda.hana.network',
+          'Priority': 'u=1, i',
+          'Referer': 'https://hanafuda.hana.network/',
+          'Sec-Ch-Ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
+          'Sec-Ch-Ua-Mobile': '?0',
+          'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(account.userAgent), // Dinamis berdasarkan User-Agent
+          'Sec-Fetch-Dest': 'empty',
+          'Sec-Fetch-Mode': 'cors',
+          'Sec-Fetch-Site': 'cross-site',
+          'User-Agent': account.userAgent
         }
       });
       const result = response.data;
@@ -202,15 +276,15 @@ const executeGardenRewardPayload = {
         return result.data.executeGardenRewardAction;
       } else {
         if (result.errors && result.errors.length > 0) {
-            const errorMessage = result.errors[0].message;
-            consolewithTime(errorMessage);
-            return 0;
+          const errorMessage = result.errors[0].message;
+          consolewithTime(errorMessage);
+          return 0;
         }
         consolewithTime(`${account.userName || 'User'} Gagal membuka kartu`);
         return 0;
       }
     } catch (error) {
-      consolewithTime(`${account.userName || 'User'} Gagal eksekusi untuk membuka kartu: ${error.message}`);  
+      consolewithTime(`${account.userName || 'User'} Gagal eksekusi untuk membuka kartu: ${error.message}`);
       return 0;
     }
   }

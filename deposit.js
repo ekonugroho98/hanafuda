@@ -21,6 +21,14 @@ function logWithTimestamp(message) {
   console.log(`[${timestamp}] ${message}`);
 }
 
+function getPlatformFromUserAgent(userAgent) {
+  if (userAgent.includes('Windows')) return '"Windows"';
+  if (userAgent.includes('Macintosh') || userAgent.includes('Mac OS')) return '"macOS"';
+  if (userAgent.includes('Linux')) return '"Linux"';
+  if (userAgent.includes('Android')) return '"Android"';
+  return '"macOS"';
+}
+
 const RPC_ENDPOINT = "https://mainnet.base.org";
 const CONTRACT_ADDRESS = "0xC5bf05cD32a14BFfb705Fb37a9d218895187376c";
 const CONFIG_FILE = './config.json';
@@ -49,6 +57,30 @@ const userInput = readline.createInterface({
 });
 
 let userAccounts = [];
+
+// Daftar User-Agent sebagai konstanta
+const USER_AGENTS = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Linux; Android 14; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.36",
+  "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_6_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Fedora; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Linux x86_64; rv:134.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Linux; Android 12; SM-A525F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Linux; Android 11; Redmi Note 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
+  "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+];
 
 function loadAccounts() {
   if (fs.existsSync(CONFIG_FILE)) {
@@ -127,6 +159,10 @@ async function synchronizeTransaction(txHash, accountData) {
   const RETRY_DELAY_MS = 10000;
   const axiosInstance = createAxiosInstance(accountData.proxy);
 
+  // Gunakan User-Agent yang telah dipilih untuk siklus ini
+  const userAgent = accountData.currentUserAgent || USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+  logWithTimestamp(`Using User-Agent for ${accountData.userName}: ${userAgent}`);
+
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
       const response = await axiosInstance.post(
@@ -145,7 +181,18 @@ async function synchronizeTransaction(txHash, accountData) {
         {
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': accountData.authToken
+            'Authorization': accountData.authToken,
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Origin': 'https://hanafuda.hana.network',
+            'Priority': 'u=1, i',
+            'Referer': 'https://hanafuda.hana.network/',
+            'Sec-Ch-Ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
+            'Sec-Ch-Ua-Mobile': '?0',
+            'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(account.userAgent), // Dinamis berdasarkan User-Agent,
+            'Sec-Fetch-Dest': 'empty',
+            'Sec-Fetch-Mode': 'cors',
+            'Sec-Fetch-Site': 'cross-site',
+            'User-Agent': userAgent
           }
         }
       );
@@ -297,12 +344,18 @@ async function loadPLimit() {
 }
 
 async function processAccountsInParallel(accounts, transactionCount, depositAmount) {
-  // Catat waktu mulai
   const startTime = Date.now();
 
-  const pLimit = await loadPLimit(); // Memuat pLimit secara dinamis
-  const limit = pLimit(2); // Batasi hanya 2 akun yang diproses secara paralel
-  const processPromises = accounts.map(account =>
+  const pLimit = await loadPLimit();
+  const limit = pLimit(2);
+
+  // Pilih User-Agent secara acak untuk setiap akun di awal siklus
+  const accountsWithUserAgent = accounts.map(account => {
+    const userAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+    return { ...account, currentUserAgent: userAgent };
+  });
+
+  const processPromises = accountsWithUserAgent.map(account =>
     limit(() =>
       processTransactions(account, transactionCount, depositAmount)
         .catch(error => {
@@ -313,16 +366,12 @@ async function processAccountsInParallel(accounts, transactionCount, depositAmou
 
   await Promise.all(processPromises);
 
-  // Catat waktu selesai dan hitung durasi
   const endTime = Date.now();
   const durationMs = endTime - startTime;
-  
-  // Konversi durasi ke format menit dan detik
   const durationSeconds = Math.floor(durationMs / 1000);
   const minutes = Math.floor(durationSeconds / 60);
   const seconds = durationSeconds % 60;
 
-  // Tampilkan durasi
   logWithTimestamp(`All accounts have been processed with limited parallelism.`);
   logWithTimestamp(`Time taken to process all accounts: ${minutes} minutes and ${seconds} seconds (${durationMs} milliseconds).`);
 }
