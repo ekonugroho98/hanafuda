@@ -6,14 +6,7 @@ const { HttpsProxyAgent } = require('https-proxy-agent');
 const pLimit = require('p-limit');
 
 function displayBanner() {
-  console.log('\x1b[34m', '██     ██ ██ ███    ██ ███████ ███    ██ ██ ██████  ');
-  console.log('\x1b[34m', '██     ██ ██ ████   ██ ██      ████   ██ ██ ██   ██ ');
-  console.log('\x1b[34m', '██  █  ██ ██ ██ ██  ██ ███████ ██ ██  ██ ██ ██████  ');
-  console.log('\x1b[34m', '██ ███ ██ ██ ██  ██ ██      ██ ██  ██ ██ ██ ██      ');
-  console.log('\x1b[34m', ' ███ ███  ██ ██   ████ ███████ ██   ████ ██ ██      ');
-  console.log('\x1b[0m');
   console.log("Hanafuda Bot Auto Deposit");
-  console.log("Join our Telegram channel: https://t.me/winsnip");
 }
 
 function logWithTimestamp(message) {
