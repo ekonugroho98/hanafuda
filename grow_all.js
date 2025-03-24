@@ -211,7 +211,7 @@ async function getCurrentUser(account) {
       }
     });
 
-    const userName = response.data?.data?.currentUser?.name;
+    const userName = account.userName || response.data?.data?.currentUser?.name;
     if (userName) {
       return userName;
     } else {
