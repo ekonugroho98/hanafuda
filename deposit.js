@@ -93,7 +93,13 @@ function loadAccounts() {
   }
 }
 
-function updateConfigFile(tokens) {
+/*************  ✨ Codeium Command ⭐  *************/
+/**
+ * Writes the given tokens to the configuration file.
+ * @param {Array<Object>} tokens - Array of user objects, each containing a refreshToken and a userAgent.
+ * @throws {Error} If there is an error writing to the configuration file.
+ */
+/******  3e3a5ca3-cbb0-411c-b963-1ad00f52068c  *******/function updateConfigFile(tokens) {
   try {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(tokens, null, 2));
     logWithTimestamp('Configuration successfully updated.');
@@ -181,7 +187,7 @@ async function synchronizeTransaction(txHash, accountData) {
             'Referer': 'https://hanafuda.hana.network/',
             'Sec-Ch-Ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
             'Sec-Ch-Ua-Mobile': '?0',
-            'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(account.userAgent), // Dinamis berdasarkan User-Agent,
+            'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(userAgent), // Dinamis berdasarkan User-Agent,
             'Sec-Fetch-Dest': 'empty',
             'Sec-Fetch-Mode': 'cors',
             'Sec-Fetch-Site': 'cross-site',
