@@ -173,6 +173,24 @@ const currentUserPayload = {
   }`
 };
 
+const currentUserStatusPayload = {
+  operationName: "CurrentUserStatus",
+  query: `query CurrentUserStatus {
+    currentUser {
+      depositCount
+      totalPoint
+      evmAddress {
+        userId
+        address
+      }
+      inviter {
+        id
+        name
+      }
+    }
+  }`
+};
+
 async function getCurrentUser(account) {
   try {
     const response = await axios.post(REQUEST_URL, currentUserPayload, {
@@ -285,7 +303,10 @@ async function executeGrowAction(account) {
 }
 
 async function processAccount(account) {
-  await getCurrentUser(account);
+  // Dapatkan nama user
+  account.userName = await getCurrentUser(account);
+  
+  // Proses grow seperti sebelumnya
   const loopCount = await getLoopCount(account);
   
   if (loopCount > 0) {
@@ -294,11 +315,18 @@ async function processAccount(account) {
     
     if (totalResult !== null) {
       consolewithTime(`${account.userName || 'User'} Grow selesai. Total Value: ${totalResult}`);
+      
+      // Hanya ambil status dan simpan ke file jika grow berhasil
+      const userStatus = await getCurrentUserStatus(account);
+      if (userStatus) {
+        saveUserStatusToFile(account.userName, userStatus);
+      }
     } else {
       consolewithTime(`${account.userName || 'User'} Grow gagal dilakukan`);
     }
   } else {
     consolewithTime(`${account.userName || 'User'} Tidak ada grow yang tersedia`);
+    // Tidak melakukan getCurrentUserStatus atau menyimpan ke file
   }
 }
 
@@ -312,6 +340,61 @@ async function executeGrowActions() {
 
     consolewithTime('Semua akun telah terproses. Menunggu 1 jam untuk proses selanjutnya');
     await new Promise(resolve => setTimeout(resolve, 1200000));
+  }
+}
+
+async function getCurrentUserStatus(account) {
+  try {
+    const response = await axios.post(REQUEST_URL, currentUserStatusPayload, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': account.authToken,
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Origin': 'https://hanafuda.hana.network',
+        'Priority': 'u=1, i',
+        'Referer': 'https://hanafuda.hana.network/',
+        'Sec-Ch-Ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(account.userAgent),
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'cross-site',
+        'User-Agent': account.userAgent
+      }
+    });
+
+    const userData = response.data?.data?.currentUser;
+    if (userData) {
+      consolewithTime(`${account.userName || 'User'} Status - Total Points: ${userData.totalPoint}, Deposit Count: ${userData.depositCount}`);
+      return {
+        totalPoint: userData.totalPoint,
+        depositCount: userData.depositCount,
+        address: userData.evmAddress?.address
+      };
+    } else {
+      throw new Error('User status not found in response');
+    }
+  } catch (error) {
+    consolewithTime(`${account.userName || 'User'} Error fetching status: ${error.message}`);
+    return null;
+  }
+}
+
+function saveUserStatusToFile(userName, status) {
+  const fileName = 'user_status.txt';
+  const timestamp = new Date().toISOString().split('.')[0].replace('T', ' ');
+  let content = `[${timestamp}] ${userName || 'Unknown User'}: Total Points = ${status.totalPoint}, Deposit Count = ${status.depositCount}`;
+  if (status.address) {
+    content += `, Address = ${status.address}`;
+  }
+  content += '\n';
+
+  try {
+    // Append ke file, buat baru jika belum ada
+    fs.appendFileSync(fileName, content);
+    consolewithTime(`Status ${userName || 'User'} berhasil disimpan ke ${fileName}`);
+  } catch (error) {
+    consolewithTime(`Gagal menyimpan status: ${error.message}`);
   }
 }
 
