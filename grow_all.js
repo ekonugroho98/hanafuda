@@ -381,9 +381,11 @@ async function getCurrentUserStatus(account) {
 }
 
 function saveUserStatusToFile(userName, status) {
-  const fileName = 'user_status.txt';
+  // Gunakan username sebagai nama file, ganti karakter yang tidak valid dengan underscore
+  const safeUserName = (userName || 'unknown_user').replace(/[^a-zA-Z0-9]/g, '_');
+  const fileName = `${safeUserName}_status.txt`;
   const timestamp = new Date().toISOString().split('.')[0].replace('T', ' ');
-  let content = `[${timestamp}] ${userName || 'Unknown User'}: Total Points = ${status.totalPoint}, Deposit Count = ${status.depositCount}`;
+  let content = `[${timestamp}] Total Points = ${status.totalPoint}, Deposit Count = ${status.depositCount}`;
   if (status.address) {
     content += `, Address = ${status.address}`;
   }
