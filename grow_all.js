@@ -381,11 +381,24 @@ async function getCurrentUserStatus(account) {
 }
 
 function saveUserStatusToFile(userName, status) {
+  // Tentukan nama folder
+  const folderName = 'user_status';
+  
+  // Buat folder jika belum ada
+  if (!fs.existsSync(folderName)) {
+    fs.mkdirSync(folderName);
+    consolewithTime(`Folder ${folderName} telah dibuat`);
+  }
+
   // Gunakan username sebagai nama file, ganti karakter yang tidak valid dengan underscore
   const safeUserName = (userName || 'unknown_user').replace(/[^a-zA-Z0-9]/g, '_');
-  const fileName = `${safeUserName}_status.txt`;
+  const fileName = `${folderName}/${safeUserName}_status.txt`;
   const timestamp = new Date().toISOString().split('.')[0].replace('T', ' ');
-  let content = `[${timestamp}] Total Points = ${status.totalPoint}, Deposit Count = ${status.depositCount}`;
+  
+  // Format totalPoint dengan pemisah ribuan
+  const formattedTotalPoint = status.totalPoint.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  
+  let content = `[${timestamp}] Total Points = ${formattedTotalPoint}, Deposit Count = ${status.depositCount}`;
   if (status.address) {
     content += `, Address = ${status.address}`;
   }
