@@ -51,7 +51,6 @@ const userInput = readline.createInterface({
 
 let userAccounts = [];
 
-// Daftar User-Agent sebagai konstanta
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
   "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
@@ -93,13 +92,7 @@ function loadAccounts() {
   }
 }
 
-/*************  ✨ Codeium Command ⭐  *************/
-/**
- * Writes the given tokens to the configuration file.
- * @param {Array<Object>} tokens - Array of user objects, each containing a refreshToken and a userAgent.
- * @throws {Error} If there is an error writing to the configuration file.
- */
-/******  3e3a5ca3-cbb0-411c-b963-1ad00f52068c  *******/function updateConfigFile(tokens) {
+function updateConfigFile(tokens) {
   try {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(tokens, null, 2));
     logWithTimestamp('Configuration successfully updated.');
@@ -109,16 +102,16 @@ function loadAccounts() {
   }
 }
 
-function createAxiosInstance(proxyUrl) {
+function createAxiosInstance(accountData) {
   return axios.create({
-    httpsAgent: proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined,
+    httpsAgent: accountData.isActiveProxy && accountData.proxy ? new HttpsProxyAgent(accountData.proxy) : undefined,
     timeout: 60000
   });
 }
 
 async function refreshAuthToken(accountData) {
   logWithTimestamp(`Attempting to refresh token for ${accountData.userName}...`);
-  const axiosInstance = createAxiosInstance(accountData.proxy);
+  const axiosInstance = createAxiosInstance(accountData);
   
   try {
     const response = await axiosInstance.post(TOKEN_REFRESH_ENDPOINT, null, {
@@ -156,9 +149,8 @@ async function refreshAuthToken(accountData) {
 async function synchronizeTransaction(txHash, accountData) {
   const MAX_RETRIES = 3;
   const RETRY_DELAY_MS = 10000;
-  const axiosInstance = createAxiosInstance(accountData.proxy);
+  const axiosInstance = createAxiosInstance(accountData);
 
-  // Gunakan User-Agent yang telah dipilih untuk siklus ini
   const userAgent = accountData.currentUserAgent || USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
   logWithTimestamp(`Using User-Agent for ${accountData.userName}: ${userAgent}`);
 
@@ -187,7 +179,7 @@ async function synchronizeTransaction(txHash, accountData) {
             'Referer': 'https://hanafuda.hana.network/',
             'Sec-Ch-Ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
             'Sec-Ch-Ua-Mobile': '?0',
-            'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(userAgent), // Dinamis berdasarkan User-Agent,
+            'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(userAgent),
             'Sec-Fetch-Dest': 'empty',
             'Sec-Fetch-Mode': 'cors',
             'Sec-Fetch-Site': 'cross-site',
@@ -259,11 +251,11 @@ async function withRetry(fn, maxRetries = 3, baseDelay = 5000) {
       return await fn();
     } catch (error) {
       if (error.message.includes("over rate limit") && attempt < maxRetries) {
-        const delay = baseDelay * Math.pow(2, attempt); // Exponential backoff
+        const delay = baseDelay * Math.pow(2, attempt);
         logWithTimestamp(`Rate limit hit, retrying in ${delay / 1000} seconds... (Attempt ${attempt}/${maxRetries})`);
         await new Promise(resolve => setTimeout(resolve, delay));
       } else {
-        throw error; // Lempar error jika bukan rate limit atau sudah max retries
+        throw error;
       }
     }
   }
@@ -288,6 +280,8 @@ async function processTransactions(accountData, transactionCount, amountInEther)
     web3.eth.accounts.wallet.add(wallet);
     const walletAddress = wallet.address;
 
+    let allTransactionsFailedDueToFunds = true; // Track if all fail due to insufficient funds
+
     for (let i = 0; i < transactionCount; i++) {
       try {
         const nonce = await withRetry(() => web3.eth.getTransactionCount(walletAddress, 'pending'));
@@ -309,7 +303,7 @@ async function processTransactions(accountData, transactionCount, amountInEther)
 
         if (!receipt.status) {
           logWithTimestamp(`Transaction ${i + 1} for ${userName} (${walletAddress}) failed on-chain with hash: ${receipt.transactionHash}`);
-          i--;
+          i--; // Retry this transaction
           await new Promise(resolve => setTimeout(resolve, 2000));
           continue;
         }
@@ -317,17 +311,37 @@ async function processTransactions(accountData, transactionCount, amountInEther)
         const confirmedReceipt = await withRetry(() => web3.eth.getTransactionReceipt(receipt.transactionHash));
         if (!confirmedReceipt || !confirmedReceipt.status) {
           logWithTimestamp(`Transaction ${i + 1} for ${userName} (${walletAddress}) not confirmed or failed on-chain with hash: ${receipt.transactionHash}`);
-          i--;
+          i--; // Retry this transaction
           await new Promise(resolve => setTimeout(resolve, 2000));
           continue;
         }
 
         logWithTimestamp(`Transaction ${i + 1} for ${userName} (${walletAddress}) successful with hash: ${receipt.transactionHash}`);
         await synchronizeTransaction(receipt.transactionHash, accountData);
+        allTransactionsFailedDueToFunds = false; // At least one transaction succeeded
       } catch (error) {
-        logWithTimestamp(`Transaction ${i + 1} failed for ${userName} (${walletAddress}): ${error.message}`);
-        i--;
-        await new Promise(resolve => setTimeout(resolve, 2000));
+        if (error.message.includes("insufficient funds for gas * price + value")) {
+          logWithTimestamp(`Transaction ${i + 1} failed for ${userName} (${walletAddress}): ${error.message} - Skipping this transaction`);
+          continue; // Skip this transaction and move to the next one
+        } else {
+          logWithTimestamp(`Transaction ${i + 1} failed for ${userName} (${walletAddress}): ${error.message}`);
+          i--; // Retry for other errors
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+      }
+    }
+
+    if (allTransactionsFailedDueToFunds) {
+      logWithTimestamp(`All transactions failed due to insufficient funds for ${userName}. Disabling account in config.`);
+      const existingConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+      const accountIndex = existingConfig.findIndex(acc => acc.privateKey === accountData.privateKey);
+
+      if (accountIndex !== -1) {
+        existingConfig[accountIndex].isActive = false;
+        updateConfigFile(existingConfig);
+        logWithTimestamp(`Account ${userName} marked as inactive in config.json`);
+      } else {
+        logWithTimestamp(`Could not find account ${userName} in config to disable`);
       }
     }
 
@@ -348,7 +362,6 @@ async function processAccountsInParallel(accounts, transactionCount, depositAmou
   const pLimit = await loadPLimit();
   const limit = pLimit(2);
 
-  // Pilih User-Agent secara acak untuk setiap akun di awal siklus
   const accountsWithUserAgent = accounts.map(account => {
     const userAgent = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
     return { ...account, currentUserAgent: userAgent };
@@ -374,7 +387,7 @@ async function processAccountsInParallel(accounts, transactionCount, depositAmou
   logWithTimestamp(`All accounts have been processed with limited parallelism.`);
   logWithTimestamp(`Time taken to process all accounts: ${minutes} minutes and ${seconds} seconds (${durationMs} milliseconds).`);
 }
-// Fungsi delay baru
+
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -426,7 +439,7 @@ async function initialize() {
       
       logWithTimestamp(`Cycle #${cycleCount} completed. Waiting for 10 minutes before next cycle (Press Ctrl+C to exit)...`);
       cycleCount++;
-      await delay(10 * 60 * 1000); // Delay 1 jam
+      await delay(10 * 60 * 1000);
     }
   }
 
