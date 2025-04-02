@@ -440,7 +440,7 @@ async function processAccountsInParallel(accounts, transactionCount, depositAmou
     return { ...account, currentUserAgent: userAgent };
   });
 
-  const processPromises = accountsWith-UserAgent.map(account =>
+  const processPromises = accountsWithUserAgent.map(account =>
     limit(() =>
       processTransactions(account, transactionCount, depositAmount)
         .catch(error => {
@@ -460,7 +460,6 @@ async function processAccountsInParallel(accounts, transactionCount, depositAmou
   logWithTimestamp(`All accounts have been processed with limited parallelism.`);
   logWithTimestamp(`Time taken to process all accounts: ${minutes} minutes and ${seconds} seconds (${durationMs} milliseconds).`);
 }
-
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
