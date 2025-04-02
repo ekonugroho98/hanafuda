@@ -89,7 +89,11 @@ function loadAccounts() {
     try {
       const fileContent = fs.readFileSync(CONFIG_FILE);
       const configData = JSON.parse(fileContent);
-      userAccounts = configData;
+      userAccounts = configData.map(account => ({
+        ...account,
+        proxy: account.proxy,
+        proxy2: account.proxy2 // Tambahkan proxy cadangan
+      }));
       logWithTimestamp(`Loaded ${userAccounts.length} accounts from config`);
       return configData;
     } catch (error) {
@@ -113,18 +117,25 @@ function updateConfigFile(tokens) {
 }
 
 function createAxiosInstance(accountData) {
-  return axios.create({
-    httpsAgent: accountData.isActiveProxy && accountData.proxy ? new HttpsProxyAgent(accountData.proxy) : undefined,
-    timeout: 60000
-  });
+  return {
+    primary: axios.create({
+      httpsAgent: accountData.isActiveProxy && accountData.proxy ? new HttpsProxyAgent(accountData.proxy) : undefined,
+      timeout: 60000
+    }),
+    secondary: accountData.isActiveProxy && accountData.proxy2 ? axios.create({
+      httpsAgent: new HttpsProxyAgent(accountData.proxy2),
+      timeout: 60000
+    }) : null
+  };
 }
 
 async function refreshAuthToken(accountData) {
   logWithTimestamp(`Attempting to refresh token for ${accountData.userName}...`);
-  const axiosInstance = createAxiosInstance(accountData);
+  const axiosInstances = createAxiosInstance(accountData);
   
   try {
-    const response = await axiosInstance.post(TOKEN_REFRESH_ENDPOINT, null, {
+    // Coba dengan proxy utama
+    let response = await axiosInstances.primary.post(TOKEN_REFRESH_ENDPOINT, null, {
       params: {
         grant_type: 'refresh_token',
         refresh_token: accountData.refreshToken,
@@ -151,22 +162,89 @@ async function refreshAuthToken(accountData) {
     logWithTimestamp('Token refreshed and saved successfully.');
     return updatedAccountData.authToken;
   } catch (error) {
-    logWithTimestamp(`Failed to refresh token: ${error.message}`);
+    logWithTimestamp(`Failed to refresh token with primary proxy: ${error.message}`);
+    
+    // Jika proxy utama gagal dan ada proxy cadangan
+    if (axiosInstances.secondary) {
+      logWithTimestamp('Attempting with backup proxy...');
+      try {
+        let response = await axiosInstances.secondary.post(TOKEN_REFRESH_ENDPOINT, null, {
+          params: {
+            grant_type: 'refresh_token',
+            refresh_token: accountData.refreshToken,
+          },
+        });
+
+        const updatedAccountData = {
+          ...accountData,
+          authToken: `Bearer ${response.data.access_token}`,
+          refreshToken: response.data.refresh_token,
+        };
+
+        const existingConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+        const accountIndex = existingConfig.findIndex(acc => acc.privateKey === accountData.privateKey);
+
+        if (accountIndex !== -1) {
+          existingConfig[accountIndex] = updatedAccountData;
+          updateConfigFile(existingConfig);
+          logWithTimestamp('Token refreshed with backup proxy and saved.');
+          return updatedAccountData.authToken;
+        }
+      } catch (error2) {
+        logWithTimestamp(`Failed to refresh token with backup proxy: ${error2.message}`);
+        return false;
+      }
+    }
     return false;
+  }
+}
+
+async function makeRequestWithProxyFallback(url, payload, accountData, axiosInstances) {
+  const userAgent = accountData.currentUserAgent || USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': accountData.authToken,
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Origin': 'https://hanafuda.hana.network',
+    'Priority': 'u=1, i',
+    'Referer': 'https://hanafuda.hana.network/',
+    'Sec-Ch-Ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(userAgent),
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'cross-site',
+    'User-Agent': userAgent
+  };
+
+  try {
+    // Coba dengan proxy utama
+    return await axiosInstances.primary.post(url, payload, { headers });
+  } catch (error) {
+    logWithTimestamp(`Request failed with primary proxy: ${error.message}`);
+    
+    // Jika ada proxy cadangan
+    if (axiosInstances.secondary) {
+      logWithTimestamp('Attempting with backup proxy...');
+      try {
+        return await axiosInstances.secondary.post(url, payload, { headers });
+      } catch (error2) {
+        logWithTimestamp(`Request failed with backup proxy: ${error2.message}`);
+        throw error2;
+      }
+    }
+    throw error;
   }
 }
 
 async function synchronizeTransaction(txHash, accountData) {
   const MAX_RETRIES = 3;
   const RETRY_DELAY_MS = 10000;
-  const axiosInstance = createAxiosInstance(accountData);
-
-  const userAgent = accountData.currentUserAgent || USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
-  logWithTimestamp(`Using User-Agent for ${accountData.userName}: ${userAgent}`);
+  const axiosInstances = createAxiosInstance(accountData);
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const response = await axiosInstance.post(
+      const response = await makeRequestWithProxyFallback(
         GRAPHQL_ENDPOINT,
         {
           query: `
@@ -179,23 +257,8 @@ async function synchronizeTransaction(txHash, accountData) {
           },
           operationName: "SyncEthereumTx"
         },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': accountData.authToken,
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Origin': 'https://hanafuda.hana.network',
-            'Priority': 'u=1, i',
-            'Referer': 'https://hanafuda.hana.network/',
-            'Sec-Ch-Ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
-            'Sec-Ch-Ua-Mobile': '?0',
-            'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(userAgent),
-            'Sec-Fetch-Dest': 'empty',
-            'Sec-Fetch-Mode': 'cors',
-            'Sec-Fetch-Site': 'cross-site',
-            'User-Agent': userAgent
-          }
-        }
+        accountData,
+        axiosInstances
       );
 
       logWithTimestamp(`Raw server response for tx ${txHash}: ${JSON.stringify(response.data, null, 2)}`);
@@ -290,7 +353,7 @@ async function processTransactions(accountData, transactionCount, amountInEther)
     web3.eth.accounts.wallet.add(wallet);
     const walletAddress = wallet.address;
 
-    let allTransactionsFailedDueToFunds = true; // Track if all fail due to insufficient funds
+    let allTransactionsFailedDueToFunds = true;
 
     for (let i = 0; i < transactionCount; i++) {
       try {
@@ -313,7 +376,7 @@ async function processTransactions(accountData, transactionCount, amountInEther)
 
         if (!receipt.status) {
           logWithTimestamp(`Transaction ${i + 1} for ${userName} (${walletAddress}) failed on-chain with hash: ${receipt.transactionHash}`);
-          i--; // Retry this transaction
+          i--;
           await new Promise(resolve => setTimeout(resolve, 2000));
           continue;
         }
@@ -321,21 +384,21 @@ async function processTransactions(accountData, transactionCount, amountInEther)
         const confirmedReceipt = await withRetry(() => web3.eth.getTransactionReceipt(receipt.transactionHash));
         if (!confirmedReceipt || !confirmedReceipt.status) {
           logWithTimestamp(`Transaction ${i + 1} for ${userName} (${walletAddress}) not confirmed or failed on-chain with hash: ${receipt.transactionHash}`);
-          i--; // Retry this transaction
+          i--;
           await new Promise(resolve => setTimeout(resolve, 2000));
           continue;
         }
 
         logWithTimestamp(`Transaction ${i + 1} for ${userName} (${walletAddress}) successful with hash: ${receipt.transactionHash}`);
         await synchronizeTransaction(receipt.transactionHash, accountData);
-        allTransactionsFailedDueToFunds = false; // At least one transaction succeeded
+        allTransactionsFailedDueToFunds = false;
       } catch (error) {
         if (error.message.includes("insufficient funds for gas * price + value")) {
           logWithTimestamp(`Transaction ${i + 1} failed for ${userName} (${walletAddress}): ${error.message} - Skipping this transaction`);
-          continue; // Skip this transaction and move to the next one
+          continue;
         } else {
           logWithTimestamp(`Transaction ${i + 1} failed for ${userName} (${walletAddress}): ${error.message}`);
-          i--; // Retry for other errors
+          i--;
           await new Promise(resolve => setTimeout(resolve, 2000));
         }
       }
@@ -377,7 +440,7 @@ async function processAccountsInParallel(accounts, transactionCount, depositAmou
     return { ...account, currentUserAgent: userAgent };
   });
 
-  const processPromises = accountsWithUserAgent.map(account =>
+  const processPromises = accountsWith-UserAgent.map(account =>
     limit(() =>
       processTransactions(account, transactionCount, depositAmount)
         .catch(error => {

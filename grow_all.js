@@ -63,12 +63,16 @@ function getAccounts() {
         accounts = [{
           refreshToken: tokensData.refreshToken,
           authToken: tokensData.authToken,
-          userAgent: getRandomUserAgent() // Tetapkan User-Agent per siklus
+          userAgent: getRandomUserAgent(),
+          proxy: tokensData.proxy,
+          proxy2: tokensData.proxy2 // Tambahkan proxy cadangan
         }];
       } else {
         accounts = Object.values(tokensData).map(account => ({
           ...account,
-          userAgent: getRandomUserAgent() // Tetapkan User-Agent per siklus
+          userAgent: getRandomUserAgent(),
+          proxy: account.proxy,
+          proxy2: account.proxy2 // Tambahkan proxy cadangan
         }));
       }
       consolewithTime(`Mendapatkan ${accounts.length} Akun didalam config`);
@@ -93,32 +97,40 @@ function saveTokens(tokens) {
   }
 }
 
-function createAxiosInstance(proxyUrl) {
-  return axios.create({
-    httpsAgent: proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined,
-    timeout: 30000
-  });
+function createAxiosInstance(proxyUrl, proxy2Url) {
+  return {
+    primary: axios.create({
+      httpsAgent: proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined,
+      timeout: 30000
+    }),
+    secondary: proxy2Url ? axios.create({
+      httpsAgent: new HttpsProxyAgent(proxy2Url),
+      timeout: 30000
+    }) : null
+  };
 }
 
-async function refreshTokenHandler(accounts) {
-  consolewithTime('Mencoba merefresh token...')
-  const axiosInstance = createAxiosInstance(accounts.proxy);
+async function refreshTokenHandler(account) {
+  consolewithTime('Mencoba merefresh token...');
+  const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
+  
   try {
-    const response = await axiosInstance.post(REFRESH_URL, null, {
+    // Coba dengan proxy utama
+    let response = await axiosInstances.primary.post(REFRESH_URL, null, {
       params: {
         grant_type: 'refresh_token',
-        refresh_token: accounts.refreshToken,
+        refresh_token: account.refreshToken,
       },
     });
 
     const updatedTokens = {
-      ...accounts,
+      ...account,
       authToken: `Bearer ${response.data.access_token}`,
       refreshToken: response.data.refresh_token,
     };
 
     const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
-    const index = existingTokens.findIndex(token => token.privateKey === accounts.privateKey);
+    const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
     if (index !== -1) {
       existingTokens[index] = updatedTokens;
     } else {
@@ -130,7 +142,38 @@ async function refreshTokenHandler(accounts) {
     consolewithTime('Token refreshed and saved successfully.');
     return updatedTokens.authToken;
   } catch (error) {
-    consolewithTime(`Failed to refresh token: ${error.message}`);
+    consolewithTime(`Gagal refresh token dengan proxy utama: ${error.message}`);
+    
+    // Jika proxy utama gagal dan ada proxy cadangan
+    if (axiosInstances.secondary) {
+      consolewithTime('Mencoba dengan proxy cadangan...');
+      try {
+        let response = await axiosInstances.secondary.post(REFRESH_URL, null, {
+          params: {
+            grant_type: 'refresh_token',
+            refresh_token: account.refreshToken,
+          },
+        });
+
+        const updatedTokens = {
+          ...account,
+          authToken: `Bearer ${response.data.access_token}`,
+          refreshToken: response.data.refreshToken,
+        };
+
+        const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
+        const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
+        if (index !== -1) {
+          existingTokens[index] = updatedTokens;
+          saveTokens(existingTokens);
+          consolewithTime('Token refreshed dengan proxy cadangan dan disimpan.');
+          return updatedTokens.authToken;
+        }
+      } catch (error2) {
+        consolewithTime(`Gagal refresh token dengan proxy cadangan: ${error2.message}`);
+        return false;
+      }
+    }
     return false;
   }
 }
@@ -192,25 +235,9 @@ const currentUserStatusPayload = {
 };
 
 async function getCurrentUser(account) {
+  const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
   try {
-    const response = await axios.post(REQUEST_URL, currentUserPayload, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': account.authToken,
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Origin': 'https://hanafuda.hana.network',
-        'Priority': 'u=1, i',
-        'Referer': 'https://hanafuda.hana.network/',
-        'Sec-Ch-Ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(account.userAgent),
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'cross-site',
-        'User-Agent': account.userAgent
-      }
-    });
-
+    const response = await makeRequestWithProxyFallback(REQUEST_URL, currentUserPayload, account, axiosInstances);
     const userName = account.userName || response.data?.data?.currentUser?.name;
     if (userName) {
       return userName;
@@ -219,85 +246,6 @@ async function getCurrentUser(account) {
     }
   } catch (error) {
     consolewithTime(`Error fetching current user data: ${error.message}`);
-    return null;
-  }
-}
-
-async function getLoopCount(account, retryOnFailure = true) {
-  try {
-    consolewithTime(`${account.userName || 'User'} Checking Grow Available...`);
-    const response = await axios.post(REQUEST_URL, getGardenPayload, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': account.authToken,
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Origin': 'https://hanafuda.hana.network',
-        'Priority': 'u=1, i',
-        'Referer': 'https://hanafuda.hana.network/',
-        'Sec-Ch-Ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(account.userAgent),
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'cross-site',
-        'User-Agent': account.userAgent
-      }
-    });
-
-    const growActionCount = response.data?.data?.getGardenForCurrentUser?.gardenStatus?.growActionCount;
-    consolewithTime(`${account.userName || 'User'} Test data Grow: ${growActionCount}`);
-    if (typeof growActionCount === 'number') {
-      consolewithTime(`${account.userName || 'User'} Grow Available: ${growActionCount}`);
-      return growActionCount;
-    } else {
-      throw new Error('growActionCount not found in response');
-    }
-  } catch (error) {
-    consolewithTime(`${account.userName || 'User'} Token Expired!`);
-
-    if (retryOnFailure) {
-      const tokenRefreshed = await refreshTokenHandler(account);
-      if (tokenRefreshed) {
-        account.authToken = tokenRefreshed; // Perbarui authToken di objek account
-        return getLoopCount(account, false);
-      }
-    }
-    return 0;
-  }
-}
-
-async function executeGrowAction(account) {
-  try {
-    consolewithTime(`${account.userName || 'User'} Executing Grow Action...`);
-    
-    const response = await axios.post(REQUEST_URL, executeGrowPayload, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': account.authToken,
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Origin': 'https://hanafuda.hana.network',
-        'Priority': 'u=1, i',
-        'Referer': 'https://hanafuda.hana.network/',
-        'Sec-Ch-Ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(account.userAgent),
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'cross-site',
-        'User-Agent': account.userAgent
-      }
-    });
-
-    const result = response.data?.data?.executeGrowAction;
-    if (result) {
-      consolewithTime(`${account.userName || 'User'} Grow Success - Total Value: ${result.totalValue}, Multiply Rate: ${result.multiplyRate}`);
-      return result.totalValue;
-    } else {
-      consolewithTime(`${account.userName || 'User'} Grow Failed`);
-      return null;
-    }
-  } catch (error) {
-    consolewithTime(`${account.userName || 'User'} Error executing grow: ${error.message}`);
     return null;
   }
 }
@@ -343,43 +291,6 @@ async function executeGrowActions() {
   }
 }
 
-async function getCurrentUserStatus(account) {
-  try {
-    const response = await axios.post(REQUEST_URL, currentUserStatusPayload, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': account.authToken,
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Origin': 'https://hanafuda.hana.network',
-        'Priority': 'u=1, i',
-        'Referer': 'https://hanafuda.hana.network/',
-        'Sec-Ch-Ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
-        'Sec-Ch-Ua-Mobile': '?0',
-        'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(account.userAgent),
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'cross-site',
-        'User-Agent': account.userAgent
-      }
-    });
-
-    const userData = response.data?.data?.currentUser;
-    if (userData) {
-      consolewithTime(`${account.userName || 'User'} Status - Total Points: ${userData.totalPoint}, Deposit Count: ${userData.depositCount}`);
-      return {
-        totalPoint: userData.totalPoint,
-        depositCount: userData.depositCount,
-        address: userData.evmAddress?.address
-      };
-    } else {
-      throw new Error('User status not found in response');
-    }
-  } catch (error) {
-    consolewithTime(`${account.userName || 'User'} Error fetching status: ${error.message}`);
-    return null;
-  }
-}
-
 function saveUserStatusToFile(userName, status) {
   // Tentukan nama folder
   const folderName = 'user_status';
@@ -410,6 +321,130 @@ function saveUserStatusToFile(userName, status) {
     consolewithTime(`Status ${userName || 'User'} berhasil disimpan ke ${fileName}`);
   } catch (error) {
     consolewithTime(`Gagal menyimpan status: ${error.message}`);
+  }
+}
+
+// new
+async function makeRequestWithProxyFallback(url, payload, account, axiosInstances) {
+  const headers = {
+    'Content-Type': 'application/json',
+    'Authorization': account.authToken,
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Origin': 'https://hanafuda.hana.network',
+    'Priority': 'u=1, i',
+    'Referer': 'https://hanafuda.hana.network/',
+    'Sec-Ch-Ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
+    'Sec-Ch-Ua-Mobile': '?0',
+    'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(account.userAgent),
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'cross-site',
+    'User-Agent': account.userAgent
+  };
+
+  try {
+    // Coba dengan proxy utama
+    return await axiosInstances.primary.post(url, payload, { headers });
+  } catch (error) {
+    consolewithTime(`Request gagal dengan proxy utama: ${error.message}`);
+    
+    // Jika ada proxy cadangan
+    if (axiosInstances.secondary) {
+      consolewithTime('Mencoba dengan proxy cadangan...');
+      try {
+        return await axiosInstances.secondary.post(url, payload, { headers });
+      } catch (error2) {
+        consolewithTime(`Request gagal dengan proxy cadangan: ${error2.message}`);
+        throw error2;
+      }
+    }
+    throw error;
+  }
+}
+
+async function getCurrentUser(account) {
+  const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
+  try {
+    const response = await makeRequestWithProxyFallback(REQUEST_URL, currentUserPayload, account, axiosInstances);
+    const userName = account.userName || response.data?.data?.currentUser?.name;
+    if (userName) {
+      return userName;
+    } else {
+      throw new Error('User name not found in response');
+    }
+  } catch (error) {
+    consolewithTime(`Error fetching current user data: ${error.message}`);
+    return null;
+  }
+}
+
+async function getLoopCount(account, retryOnFailure = true) {
+  const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
+  try {
+    consolewithTime(`${account.userName || 'User'} Checking Grow Available...`);
+    const response = await makeRequestWithProxyFallback(REQUEST_URL, getGardenPayload, account, axiosInstances);
+    
+    const growActionCount = response.data?.data?.getGardenForCurrentUser?.gardenStatus?.growActionCount;
+    consolewithTime(`${account.userName || 'User'} Test data Grow: ${growActionCount}`);
+    if (typeof growActionCount === 'number') {
+      consolewithTime(`${account.userName || 'User'} Grow Available: ${growActionCount}`);
+      return growActionCount;
+    } else {
+      throw new Error('growActionCount not found in response');
+    }
+  } catch (error) {
+    consolewithTime(`${account.userName || 'User'} Token Expired!`);
+
+    if (retryOnFailure) {
+      const tokenRefreshed = await refreshTokenHandler(account);
+      if (tokenRefreshed) {
+        account.authToken = tokenRefreshed;
+        return getLoopCount(account, false);
+      }
+    }
+    return 0;
+  }
+}
+
+async function executeGrowAction(account) {
+  const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
+  try {
+    consolewithTime(`${account.userName || 'User'} Executing Grow Action...`);
+    const response = await makeRequestWithProxyFallback(REQUEST_URL, executeGrowPayload, account, axiosInstances);
+    
+    const result = response.data?.data?.executeGrowAction;
+    if (result) {
+      consolewithTime(`${account.userName || 'User'} Grow Success - Total Value: ${result.totalValue}, Multiply Rate: ${result.multiplyRate}`);
+      return result.totalValue;
+    } else {
+      consolewithTime(`${account.userName || 'User'} Grow Failed`);
+      return null;
+    }
+  } catch (error) {
+    consolewithTime(`${account.userName || 'User'} Error executing grow: ${error.message}`);
+    return null;
+  }
+}
+
+async function getCurrentUserStatus(account) {
+  const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
+  try {
+    const response = await makeRequestWithProxyFallback(REQUEST_URL, currentUserStatusPayload, account, axiosInstances);
+    
+    const userData = response.data?.data?.currentUser;
+    if (userData) {
+      consolewithTime(`${account.userName || 'User'} Status - Total Points: ${userData.totalPoint}, Deposit Count: ${userData.depositCount}`);
+      return {
+        totalPoint: userData.totalPoint,
+        depositCount: userData.depositCount,
+        address: userData.evmAddress?.address
+      };
+    } else {
+      throw new Error('User status not found in response');
+    }
+  } catch (error) {
+    consolewithTime(`${account.userName || 'User'} Error fetching status: ${error.message}`);
+    return null;
   }
 }
 
