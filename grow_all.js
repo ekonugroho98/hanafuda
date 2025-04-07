@@ -171,6 +171,17 @@ async function refreshTokenHandler(account) {
         }
       } catch (error2) {
         consolewithTime(`Gagal refresh token dengan proxy cadangan: ${error2.message}`);
+        // Tambahkan logging ke error.txt jika status code 400
+        if (error2.response && error2.response.status === 400) {
+          const timestamp = new Date().toISOString().split('.')[0].replace('T', ' ');
+          const errorMessage = `[${timestamp}] Username: ${account.userName || 'Unknown'} - Gagal refresh token: Request failed with status code 400\n`;
+          try {
+            fs.appendFileSync('error.txt', errorMessage);
+            consolewithTime(`Username ${account.userName || 'Unknown'} ditambahkan ke error.txt`);
+          } catch (fsError) {
+            consolewithTime(`Gagal menulis ke error.txt: ${fsError.message}`);
+          }
+        }
         return false;
       }
     }
