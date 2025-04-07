@@ -171,15 +171,30 @@ async function refreshTokenHandler(account) {
         }
       } catch (error2) {
         consolewithTime(`Gagal refresh token dengan proxy cadangan: ${error2.message}`);
-        // Tambahkan logging ke error.txt jika status code 400
+        // Jika status code 400, ubah isActive menjadi false dan log ke error.txt
         if (error2.response && error2.response.status === 400) {
           const timestamp = new Date().toISOString().split('.')[0].replace('T', ' ');
           const errorMessage = `[${timestamp}] Username: ${account.userName || 'Unknown'} - Gagal refresh token: Request failed with status code 400\n`;
+          
+          // Log ke error.txt
           try {
             fs.appendFileSync('error.txt', errorMessage);
             consolewithTime(`Username ${account.userName || 'Unknown'} ditambahkan ke error.txt`);
           } catch (fsError) {
             consolewithTime(`Gagal menulis ke error.txt: ${fsError.message}`);
+          }
+
+          // Ubah isActive menjadi false di config
+          try {
+            const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
+            const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
+            if (index !== -1) {
+              existingTokens[index].isActive = false; // Set isActive ke false
+              saveTokens(existingTokens);
+              consolewithTime(`isActive untuk ${account.userName || 'Unknown'} diubah menjadi false di config`);
+            }
+          } catch (configError) {
+            consolewithTime(`Gagal mengubah config: ${configError.message}`);
           }
         }
         return false;
