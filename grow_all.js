@@ -110,6 +110,24 @@ function createAxiosInstance(proxyUrl, proxy2Url) {
   };
 }
 
+// Tambahkan konfigurasi Telegram di bagian atas file (di luar fungsi)
+const TELEGRAM_BOT_TOKEN = '7987739259:AAG8BBMC8O2p1mLOTT_aQOd8yRPyqVPNX1A'; // Token bot Anda
+const TELEGRAM_CHAT_ID = '1433257992'; // Chat ID Anda
+
+// Fungsi untuk mengirim pesan ke Telegram
+async function sendTelegramMessage(message) {
+  try {
+    const response = await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      chat_id: TELEGRAM_CHAT_ID,
+      text: message,
+    });
+    consolewithTime('Notifikasi berhasil dikirim ke Telegram');
+  } catch (error) {
+    consolewithTime(`Gagal mengirim notifikasi ke Telegram: ${error.message}`);
+  }
+}
+
+// Modifikasi fungsi refreshTokenHandler
 async function refreshTokenHandler(account) {
   consolewithTime('Mencoba merefresh token...');
   const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
@@ -171,14 +189,14 @@ async function refreshTokenHandler(account) {
         }
       } catch (error2) {
         consolewithTime(`Gagal refresh token dengan proxy cadangan: ${error2.message}`);
-        // Jika status code 400, ubah isActive menjadi false dan log ke error.txt
+        // Jika status code 400, kirim notifikasi ke Telegram
         if (error2.response && error2.response.status === 400) {
           const timestamp = new Date().toISOString().split('.')[0].replace('T', ' ');
-          const errorMessage = `[${timestamp}] Username: ${account.userName || 'Unknown'} - Gagal refresh token: Request failed with status code 400\n`;
+          const errorMessage = `[${timestamp}] Username: ${account.userName || 'Unknown'} - Gagal refresh token: Request failed with status code 400`;
           
           // Log ke error.txt
           try {
-            fs.appendFileSync('error.txt', errorMessage);
+            fs.appendFileSync('error.txt', errorMessage + '\n');
             consolewithTime(`Username ${account.userName || 'Unknown'} ditambahkan ke error.txt`);
           } catch (fsError) {
             consolewithTime(`Gagal menulis ke error.txt: ${fsError.message}`);
@@ -189,13 +207,16 @@ async function refreshTokenHandler(account) {
             const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
             const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
             if (index !== -1) {
-              existingTokens[index].isActive = false; // Set isActive ke false
+              existingTokens[index].isActive = false;
               saveTokens(existingTokens);
               consolewithTime(`isActive untuk ${account.userName || 'Unknown'} diubah menjadi false di config`);
             }
           } catch (configError) {
             consolewithTime(`Gagal mengubah config: ${configError.message}`);
           }
+
+          // Kirim notifikasi ke Telegram
+          await sendTelegramMessage(errorMessage);
         }
         return false;
       }
@@ -203,7 +224,6 @@ async function refreshTokenHandler(account) {
     return false;
   }
 }
-
 // GraphQL Payloads
 const getGardenPayload = {
   operationName: "GetGardenForCurrentUser",
@@ -308,15 +328,19 @@ async function executeGrowActions() {
   while (true) {
     consolewithTime('Memulai grow untuk semua akun...');
     getAccounts();
-    for (let account of accounts) {
-      await processAccount(account);
+    if (accounts.length === 0) {
+      consolewithTime('Tidak ada akun aktif yang tersedia untuk diproses.');
+    } else {
+      for (let account of accounts) {
+        await processAccount(account);
+      }
+      consolewithTime('Semua akun telah terproses.');
     }
 
-    consolewithTime('Semua akun telah terproses. Menunggu 1 jam untuk proses selanjutnya');
-    await new Promise(resolve => setTimeout(resolve, 1200000));
+    consolewithTime('Menunggu 20 menit untuk proses selanjutnya...');
+    await new Promise(resolve => setTimeout(resolve, 20 * 60 * 1000)); // 20 menit dalam milidetik
   }
 }
-
 function saveUserStatusToFile(userName, status) {
   // Tentukan nama folder
   const folderName = 'user_status';
