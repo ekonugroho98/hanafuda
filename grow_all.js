@@ -144,7 +144,6 @@ async function refreshTokenHandler(account) {
     const updatedTokens = {
       ...account,
       authToken: `Bearer ${response.data.access_token}`,
-      refreshToken: response.data.refresh_token,
     };
 
     const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
