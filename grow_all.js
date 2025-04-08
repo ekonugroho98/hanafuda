@@ -296,16 +296,12 @@ async function getCurrentUser(account) {
 }
 
 async function processAccount(account) {
-  // Tambahan pengecekan isActive di awal fungsi
   if (account.isActive === false) {
     consolewithTime(`Akun ${account.userName || 'Unknown'} dilewati karena isActive: false`);
     return;
   }
 
-  // Dapatkan nama user
   account.userName = await getCurrentUser(account);
-  
-  // Proses grow seperti sebelumnya
   const loopCount = await getLoopCount(account);
   
   if (loopCount > 0) {
@@ -315,10 +311,11 @@ async function processAccount(account) {
     if (totalResult !== null) {
       consolewithTime(`${account.userName || 'User'} Grow selesai. Total Value: ${totalResult}`);
       
-      // Hanya ambil status dan simpan ke file jika grow berhasil
+      // Get and save user status
       const userStatus = await getCurrentUserStatus(account);
       if (userStatus) {
         saveUserStatusToFile(account.userName, userStatus);
+        // Note: Telegram notification is already handled in executeGrowAction
       }
     } else {
       consolewithTime(`${account.userName || 'User'} Grow gagal dilakukan`);
@@ -329,28 +326,39 @@ async function processAccount(account) {
 }
 
 // Modifikasi fungsi executeGrowActions
-async function executeGrowActions() {
-  while (true) {
-    consolewithTime('Memulai grow untuk semua akun...');
-    getAccounts();
-    if (accounts.length === 0) {
-      consolewithTime('Tidak ada akun aktif yang tersedia untuk diproses.');
-    } else {
-      // Filter hanya akun yang isActive nya true
-      const activeAccounts = accounts.filter(account => account.isActive !== false);
+async function executeGrowAction(account) {
+  const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
+  try {
+    consolewithTime(`${account.userName || 'User'} Executing Grow Action...`);
+    const response = await makeRequestWithProxyFallback(REQUEST_URL, executeGrowPayload, account, axiosInstances);
+    
+    const result = response.data?.data?.executeGrowAction;
+    if (result) {
+      consolewithTime(`${account.userName || 'User'} Grow Success - Total Value: ${result.totalValue}, Multiply Rate: ${result.multiplyRate}`);
       
-      if (activeAccounts.length === 0) {
-        consolewithTime('Tidak ada akun dengan isActive: true yang tersedia untuk diproses.');
-      } else {
-        for (let account of activeAccounts) {
-          await processAccount(account);
-        }
-        consolewithTime('Semua akun aktif telah terproses.');
+      // Get updated user status after successful grow
+      const userStatus = await getCurrentUserStatus(account);
+      if (userStatus) {
+        // Format the message for Telegram
+        const timestamp = new Date().toISOString().split('.')[0].replace('T', ' ');
+        const formattedTotalPoint = userStatus.totalPoint.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+        const telegramMessage = `[${timestamp}] ${account.userName || 'User'} - Grow Success\n` +
+                              `Total Value: ${result.totalValue}\n` +
+                              `Total Points: ${formattedTotalPoint}\n` +
+                              `Multiply Rate: ${result.multiplyRate}`;
+        
+        // Send to Telegram
+        await sendTelegramMessage(telegramMessage);
       }
+      
+      return result.totalValue;
+    } else {
+      consolewithTime(`${account.userName || 'User'} Grow Failed`);
+      return null;
     }
-
-    consolewithTime('Menunggu 20 menit untuk proses selanjutnya...');
-    await new Promise(resolve => setTimeout(resolve, 20 * 60 * 1000)); // 20 menit dalam milidetik
+  } catch (error) {
+    consolewithTime(`${account.userName || 'User'} Error executing grow: ${error.message}`);
+    return null;
   }
 }
 
