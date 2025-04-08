@@ -113,11 +113,12 @@ function createAxiosInstance(proxyUrl, proxy2Url) {
 // Tambahkan konfigurasi Telegram di bagian atas file (di luar fungsi)
 const TELEGRAM_BOT_TOKEN = '7987739259:AAG8BBMC8O2p1mLOTT_aQOd8yRPyqVPNX1A'; // Token bot Anda
 const TELEGRAM_CHAT_ID = '1433257992'; // Chat ID Anda
+const TELEGRAM_BOT_TOKEN_POINT = '7027009649:AAGGeiyg_GDiFNu5ttx0ddNDNXVF2Jnj7NY'; // Token bot Anda
 
 // Fungsi untuk mengirim pesan ke Telegram
-async function sendTelegramMessage(message) {
+async function sendTelegramMessage(message, token) {
   try {
-    const response = await axios.post(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    const response = await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
       chat_id: TELEGRAM_CHAT_ID,
       text: message,
     });
@@ -215,7 +216,7 @@ async function refreshTokenHandler(account) {
           }
 
           // Kirim notifikasi ke Telegram
-          await sendTelegramMessage(errorMessage);
+          await sendTelegramMessage(errorMessage, TELEGRAM_BOT_TOKEN);
         }
         return false;
       }
@@ -414,7 +415,7 @@ async function saveUserStatusToFile(userName, status) {
                         `Deposit Count: ${status.depositCount}`;
   
   // Send to Telegram
-  await sendTelegramMessage(telegramMessage);
+  await sendTelegramMessage(telegramMessage, TELEGRAM_BOT_TOKEN_POINT);
 
   try {
     // Append ke file, buat baru jika belum ada
