@@ -376,15 +376,6 @@ async function processAccount(account) {
       const userStatus = await getCurrentUserStatus(account);
       if (userStatus) {
         saveUserStatusToFile(account.userName, userStatus);
-        const timestamp = new Date().toISOString().split('.')[0].replace('T', ' ');
-        const formattedTotalPoint = userStatus.totalPoint.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-        const telegramMessage = `[${timestamp}] ${account.userName || 'User'} - Grow Success\n` +
-                              `Total Value: ${result.totalValue}\n` +
-                              `Total Points: ${formattedTotalPoint}\n` +
-                              `Multiply Rate: ${result.multiplyRate}`;
-        
-        // Send to Telegram
-        await sendTelegramMessage(telegramMessage);
       }
     } else {
       consolewithTime(`${account.userName || 'User'} Grow gagal dilakukan`);
@@ -417,6 +408,14 @@ function saveUserStatusToFile(userName, status) {
     content += `, Address = ${status.address}`;
   }
   content += '\n';
+
+  const telegramMessage = `[${timestamp}] ${userName|| 'User'} - Grow Success\n` +
+                        `Total Value: ${result.totalValue}\n` +
+                        `Total Points: ${formattedTotalPoint}\n` +
+                        `Multiply Rate: ${result.multiplyRate}`;
+  
+  // Send to Telegram
+  sendTelegramMessage(telegramMessage);
 
   try {
     // Append ke file, buat baru jika belum ada
