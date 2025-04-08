@@ -410,9 +410,8 @@ function saveUserStatusToFile(userName, status) {
   content += '\n';
 
   const telegramMessage = `[${timestamp}] ${userName|| 'User'} - Grow Success\n` +
-                        `Total Value: ${result.totalValue}\n` +
                         `Total Points: ${formattedTotalPoint}\n` +
-                        `Multiply Rate: ${result.multiplyRate}`;
+                        `Deposit Count: ${status.depositCount}`;
   
   // Send to Telegram
   sendTelegramMessage(telegramMessage);
