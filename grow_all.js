@@ -176,7 +176,6 @@ async function refreshTokenHandler(account) {
         const updatedTokens = {
           ...account,
           authToken: `Bearer ${response.data.access_token}`,
-          refreshToken: response.data.refreshToken,
         };
 
         const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
@@ -315,7 +314,7 @@ async function processAccount(account) {
       // Get and save user status
       const userStatus = await getCurrentUserStatus(account);
       if (userStatus) {
-        saveUserStatusToFile(account.userName, userStatus);
+        saveUserStatusToFile(account.userName, userStatus, totalResult);
         // Note: Telegram notification is already handled in executeGrowAction
       }
     } else {
@@ -376,7 +375,7 @@ async function processAccount(account) {
       // Hanya ambil status dan simpan ke file jika grow berhasil
       const userStatus = await getCurrentUserStatus(account);
       if (userStatus) {
-        saveUserStatusToFile(account.userName, userStatus);
+        saveUserStatusToFile(account.userName, userStatus, totalResult);
       }
     } else {
       consolewithTime(`${account.userName || 'User'} Grow gagal dilakukan`);
@@ -386,7 +385,7 @@ async function processAccount(account) {
   }
 }
 
-async function saveUserStatusToFile(userName, status) {
+async function saveUserStatusToFile(userName, status, totalResult) {
   // Tentukan nama folder
   const folderName = 'user_status';
   
@@ -411,6 +410,7 @@ async function saveUserStatusToFile(userName, status) {
   content += '\n';
 
   const telegramMessage = `[${timestamp}] ${userName|| 'User'} - Grow Success\n` +
+                        `Total Grow: ${totalResult}\n` +
                         `Total Points: ${formattedTotalPoint}\n` +
                         `Deposit Count: ${status.depositCount}`;
   
