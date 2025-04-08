@@ -325,56 +325,71 @@ async function initiateDrawAction(account) {
 }
 
 async function processAccount(account) {
-  // Pastikan nama pengguna diambil terlebih dahulu
-  if (!account.userName) {
-      await getCurrentUser(account);
-  }
+    // Tambahan pengecekan isActive di awal fungsi
+    if (account.isActive === false) {
+      consolewithTime(`Akun ${account.userName || 'Unknown'} dilewati karena isActive: false`);
+      return;
+    }
   
-  const loopCount = await getLoopCount(account);
-
-  if (loopCount >= 10) {
+    // Pastikan nama pengguna diambil terlebih dahulu
+    if (!account.userName) {
+      await getCurrentUser(account);
+    }
+    
+    const loopCount = await getLoopCount(account);
+  
+    if (loopCount >= 10) {
       let totalResult = 0;
       const cardsToDrawPerAction = 10;
       const totalActions = Math.floor(loopCount / cardsToDrawPerAction) + (loopCount % cardsToDrawPerAction ? 1 : 0);
       
       // Proses draw secara berurutan untuk akun ini
       for (let i = 0; i < totalActions; i++) {
-          const currentActionCount = Math.min(cardsToDrawPerAction, loopCount - (i * cardsToDrawPerAction));
-          consolewithTime(`${account.userName || 'User'} Memulai Membuka ${currentActionCount} kartu pada aksi ${i + 1}/${totalActions}`);
+        const currentActionCount = Math.min(cardsToDrawPerAction, loopCount - (i * cardsToDrawPerAction));
+        consolewithTime(`${account.userName || 'User'} Memulai Membuka ${currentActionCount} kartu pada aksi ${i + 1}/${totalActions}`);
+      
+        const initiateResult = await initiateDrawAction(account);
+        if (initiateResult) {
+          totalResult += initiateResult.length || 0;
+          consolewithTime(`${account.userName || 'User'} Sukses membuka ${currentActionCount} kartu pada aksi ${i + 1}`);
+        } else {
+          consolewithTime(`${account.userName || 'User'} Gagal membuka ${currentActionCount} kartu pada aksi ${i + 1}`);
+          break;
+        }
         
-          const initiateResult = await initiateDrawAction(account);
-          if (initiateResult) {
-              totalResult += initiateResult.length || 0;
-              consolewithTime(`${account.userName || 'User'} Sukses membuka ${currentActionCount} kartu pada aksi ${i + 1}`);
-          } else {
-              consolewithTime(`${account.userName || 'User'} Gagal membuka ${currentActionCount} kartu pada aksi ${i + 1}`);
-              break;
-          }
-          
-          await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
-
+  
       consolewithTime(`${account.userName || 'User'} Semua draw telah selesai dilakukan. Total kartu dibuka: ${totalResult}`);
-  } else {
+    } else {
       consolewithTime(`${account.userName || 'User'} Tidak ada draw yang tersedia (Count: ${loopCount})`);
-  }
+    }
 }
-
-async function executeGardenRewardActions() {
-  while (true) {
+  
+  async function executeGardenRewardActions() {
+    while (true) {
       consolewithTime('Memulai draw untuk semua akun secara berurutan...');
       getAccounts();
-      for (let account of accounts) {
+      
+      // Filter hanya akun yang isActive nya true
+      const activeAccounts = accounts.filter(account => account.isActive !== false);
+      
+      if (activeAccounts.length === 0) {
+        consolewithTime('Tidak ada akun dengan isActive: true yang tersedia untuk diproses.');
+      } else {
+        for (let account of activeAccounts) {
           consolewithTime(`Memproses akun: ${account.userName || 'Unknown User'}...`);
           await processAccount(account);
           consolewithTime(`Selesai memproses akun: ${account.userName || 'Unknown User'}`);
           await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        consolewithTime('Semua akun aktif telah terproses secara berurutan. Menunggu 1 jam untuk siklus berikutnya');
       }
-
-      consolewithTime('Semua akun telah terproses secara berurutan. Menunggu 1 jam untuk siklus berikutnya');
+      
       await new Promise(resolve => setTimeout(resolve, 1200000));
+    }
   }
-}
+  
 
 printBanner();
 executeGardenRewardActions();

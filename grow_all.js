@@ -296,6 +296,12 @@ async function getCurrentUser(account) {
 }
 
 async function processAccount(account) {
+  // Tambahan pengecekan isActive di awal fungsi
+  if (account.isActive === false) {
+    consolewithTime(`Akun ${account.userName || 'Unknown'} dilewati karena isActive: false`);
+    return;
+  }
+
   // Dapatkan nama user
   account.userName = await getCurrentUser(account);
   
@@ -319,10 +325,10 @@ async function processAccount(account) {
     }
   } else {
     consolewithTime(`${account.userName || 'User'} Tidak ada grow yang tersedia`);
-    // Tidak melakukan getCurrentUserStatus atau menyimpan ke file
   }
 }
 
+// Modifikasi fungsi executeGrowActions
 async function executeGrowActions() {
   while (true) {
     consolewithTime('Memulai grow untuk semua akun...');
@@ -330,16 +336,58 @@ async function executeGrowActions() {
     if (accounts.length === 0) {
       consolewithTime('Tidak ada akun aktif yang tersedia untuk diproses.');
     } else {
-      for (let account of accounts) {
-        await processAccount(account);
+      // Filter hanya akun yang isActive nya true
+      const activeAccounts = accounts.filter(account => account.isActive !== false);
+      
+      if (activeAccounts.length === 0) {
+        consolewithTime('Tidak ada akun dengan isActive: true yang tersedia untuk diproses.');
+      } else {
+        for (let account of activeAccounts) {
+          await processAccount(account);
+        }
+        consolewithTime('Semua akun aktif telah terproses.');
       }
-      consolewithTime('Semua akun telah terproses.');
     }
 
     consolewithTime('Menunggu 20 menit untuk proses selanjutnya...');
     await new Promise(resolve => setTimeout(resolve, 20 * 60 * 1000)); // 20 menit dalam milidetik
   }
 }
+
+// Modifikasi fungsi processAccount untuk menambahkan pengecekan tambahan
+async function processAccount(account) {
+  // Tambahan pengecekan isActive di awal fungsi
+  if (account.isActive === false) {
+    consolewithTime(`Akun ${account.userName || 'Unknown'} dilewati karena isActive: false`);
+    return;
+  }
+
+  // Dapatkan nama user
+  account.userName = await getCurrentUser(account);
+  
+  // Proses grow seperti sebelumnya
+  const loopCount = await getLoopCount(account);
+  
+  if (loopCount > 0) {
+    consolewithTime(`${account.userName || 'User'} Memulai Grow dengan semua actions...`);
+    const totalResult = await executeGrowAction(account);
+    
+    if (totalResult !== null) {
+      consolewithTime(`${account.userName || 'User'} Grow selesai. Total Value: ${totalResult}`);
+      
+      // Hanya ambil status dan simpan ke file jika grow berhasil
+      const userStatus = await getCurrentUserStatus(account);
+      if (userStatus) {
+        saveUserStatusToFile(account.userName, userStatus);
+      }
+    } else {
+      consolewithTime(`${account.userName || 'User'} Grow gagal dilakukan`);
+    }
+  } else {
+    consolewithTime(`${account.userName || 'User'} Tidak ada grow yang tersedia`);
+  }
+}
+
 function saveUserStatusToFile(userName, status) {
   // Tentukan nama folder
   const folderName = 'user_status';
