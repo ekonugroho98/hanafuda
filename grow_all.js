@@ -385,7 +385,7 @@ async function processAccount(account) {
   }
 }
 
-function saveUserStatusToFile(userName, status) {
+async function saveUserStatusToFile(userName, status) {
   // Tentukan nama folder
   const folderName = 'user_status';
   
@@ -414,7 +414,7 @@ function saveUserStatusToFile(userName, status) {
                         `Deposit Count: ${status.depositCount}`;
   
   // Send to Telegram
-  sendTelegramMessage(telegramMessage);
+  await sendTelegramMessage(telegramMessage);
 
   try {
     // Append ke file, buat baru jika belum ada
