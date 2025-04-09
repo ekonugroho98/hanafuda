@@ -298,33 +298,37 @@ async function getCurrentUser(account) {
 }
 
 async function processAccount(account) {
-  if (account.isActive === false) {
-    consolewithTime(`Akun ${account.userName || 'Unknown'} dilewati karena isActive: false`);
-    return;
-  }
-
-  account.userName = await getCurrentUser(account);
-  const loopCount = await getLoopCount(account);
+    // Tambahan pengecekan isActive di awal fungsi
+    if (account.isActive === false) {
+      consolewithTime(`Akun ${account.userName || 'Unknown'} dilewati karena isActive: false`);
+      return;
+    }
   
-  if (loopCount > 0) {
-    consolewithTime(`${account.userName || 'User'} Memulai Grow dengan semua actions...`);
-    const totalResult = await executeGrowAction(account);
+    // Dapatkan nama user
+    account.userName = await getCurrentUser(account);
     
-    if (totalResult !== null) {
-      consolewithTime(`${account.userName || 'User'} Grow selesai. Total Value: ${totalResult}`);
+    // Proses grow seperti sebelumnya
+    const loopCount = await getLoopCount(account);
+    
+    if (loopCount > 0) {
+      consolewithTime(`${account.userName || 'User'} Memulai Grow dengan semua actions...`);
+      const totalResult = await executeGrowAction(account);
       
-      // Get and save user status
-      const userStatus = await getCurrentUserStatus(account);
-      if (userStatus) {
-        saveUserStatusToFile(account.userName, userStatus, totalResult);
-        // Note: Telegram notification is already handled in executeGrowAction
+      if (totalResult !== null) {
+        successfulGrows++; // Tambah counter hanya jika grow berhasil
+        consolewithTime(`${account.userName || 'User'} Grow selesai. Total Value: ${totalResult}`);
+        
+        // Hanya ambil status dan simpan ke file jika grow berhasil
+        const userStatus = await getCurrentUserStatus(account);
+        if (userStatus) {
+          saveUserStatusToFile(account.userName, userStatus, totalResult);
+        }
+      } else {
+        consolewithTime(`${account.userName || 'User'} Grow gagal dilakukan`);
       }
     } else {
-      consolewithTime(`${account.userName || 'User'} Grow gagal dilakukan`);
+      consolewithTime(`${account.userName || 'User'} Tidak ada grow yang tersedia`);
     }
-  } else {
-    consolewithTime(`${account.userName || 'User'} Tidak ada grow yang tersedia`);
-  }
 }
 
 // Modifikasi fungsi executeGrowActions
@@ -361,41 +365,6 @@ async function executeGrowActions() {
 
     consolewithTime('Menunggu 20 menit untuk proses selanjutnya...');
     await new Promise(resolve => setTimeout(resolve, 20 * 60 * 1000)); // 20 menit dalam milidetik
-  }
-}
-
-// Modifikasi fungsi processAccount untuk menambahkan pengecekan tambahan
-async function processAccount(account) {
-  // Tambahan pengecekan isActive di awal fungsi
-  if (account.isActive === false) {
-    consolewithTime(`Akun ${account.userName || 'Unknown'} dilewati karena isActive: false`);
-    return;
-  }
-
-  // Dapatkan nama user
-  account.userName = await getCurrentUser(account);
-  
-  // Proses grow seperti sebelumnya
-  const loopCount = await getLoopCount(account);
-  
-  if (loopCount > 0) {
-    consolewithTime(`${account.userName || 'User'} Memulai Grow dengan semua actions...`);
-    const totalResult = await executeGrowAction(account);
-    
-    if (totalResult !== null) {
-      successfulGrows++; // Tambah counter hanya jika grow berhasil
-      consolewithTime(`${account.userName || 'User'} Grow selesai. Total Value: ${totalResult}`);
-      
-      // Hanya ambil status dan simpan ke file jika grow berhasil
-      const userStatus = await getCurrentUserStatus(account);
-      if (userStatus) {
-        saveUserStatusToFile(account.userName, userStatus, totalResult);
-      }
-    } else {
-      consolewithTime(`${account.userName || 'User'} Grow gagal dilakukan`);
-    }
-  } else {
-    consolewithTime(`${account.userName || 'User'} Tidak ada grow yang tersedia`);
   }
 }
 
