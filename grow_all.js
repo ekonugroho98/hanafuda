@@ -26,6 +26,7 @@ const USER_AGENTS = [
 ];
 
 let successfulGrows = 0; // Counter untuk Grow Success
+let failedAccounts = []; // Array untuk menyimpan username yang gagal
 
 function printBanner() {
   console.log("Hanafuda Bot Auto Grow");
@@ -67,14 +68,14 @@ function getAccounts() {
           authToken: tokensData.authToken,
           userAgent: getRandomUserAgent(),
           proxy: tokensData.proxy,
-          proxy2: tokensData.proxy2 // Tambahkan proxy cadangan
+          proxy2: tokensData.proxy2
         }];
       } else {
         accounts = Object.values(tokensData).map(account => ({
           ...account,
           userAgent: getRandomUserAgent(),
           proxy: account.proxy,
-          proxy2: account.proxy2 // Tambahkan proxy cadangan
+          proxy2: account.proxy2
         }));
       }
       consolewithTime(`Mendapatkan ${accounts.length} Akun didalam config`);
@@ -112,15 +113,13 @@ function createAxiosInstance(proxyUrl, proxy2Url) {
   };
 }
 
-// Tambahkan konfigurasi Telegram di bagian atas file (di luar fungsi)
-const TELEGRAM_BOT_TOKEN = '7987739259:AAG8BBMC8O2p1mLOTT_aQOd8yRPyqVPNX1A'; // Token bot Anda
-const TELEGRAM_CHAT_ID = '1433257992'; // Chat ID Anda
-const TELEGRAM_BOT_TOKEN_POINT = '7027009649:AAGGeiyg_GDiFNu5ttx0ddNDNXVF2Jnj7NY'; // Token bot Anda
+const TELEGRAM_BOT_TOKEN = '7987739259:AAG8BBMC8O2p1mLOTT_aQOd8yRPyqVPNX1A';
+const TELEGRAM_CHAT_ID = '1433257992';
+const TELEGRAM_BOT_TOKEN_POINT = '7027009649:AAGGeiyg_GDiFNu5ttx0ddNDNXVF2Jnj7NY';
 
-// Fungsi untuk mengirim pesan ke Telegram
 async function sendTelegramMessage(message, token) {
   try {
-    const response = await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+    await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
       chat_id: TELEGRAM_CHAT_ID,
       text: message,
     });
@@ -130,13 +129,11 @@ async function sendTelegramMessage(message, token) {
   }
 }
 
-// Modifikasi fungsi refreshTokenHandler
 async function refreshTokenHandler(account) {
   consolewithTime('Mencoba merefresh token...');
   const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
   
   try {
-    // Coba dengan proxy utama
     let response = await axiosInstances.primary.post(REFRESH_URL, null, {
       params: {
         grant_type: 'refresh_token',
@@ -164,7 +161,6 @@ async function refreshTokenHandler(account) {
   } catch (error) {
     consolewithTime(`Gagal refresh token dengan proxy utama: ${error.message}`);
     
-    // Jika proxy utama gagal dan ada proxy cadangan
     if (axiosInstances.secondary) {
       consolewithTime('Mencoba dengan proxy cadangan...');
       try {
@@ -190,12 +186,10 @@ async function refreshTokenHandler(account) {
         }
       } catch (error2) {
         consolewithTime(`Gagal refresh token dengan proxy cadangan: ${error2.message}`);
-        // Jika status code 400, kirim notifikasi ke Telegram
         if (error2.response && error2.response.status === 400) {
           const timestamp = new Date().toISOString().split('.')[0].replace('T', ' ');
           const errorMessage = `[${timestamp}] Username: ${account.userName || 'Unknown'} - Gagal refresh token: Request failed with status code 400`;
           
-          // Log ke error.txt
           try {
             fs.appendFileSync('error.txt', errorMessage + '\n');
             consolewithTime(`Username ${account.userName || 'Unknown'} ditambahkan ke error.txt`);
@@ -203,7 +197,6 @@ async function refreshTokenHandler(account) {
             consolewithTime(`Gagal menulis ke error.txt: ${fsError.message}`);
           }
 
-          // Ubah isActive menjadi false di config
           try {
             const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
             const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
@@ -216,7 +209,6 @@ async function refreshTokenHandler(account) {
             consolewithTime(`Gagal mengubah config: ${configError.message}`);
           }
 
-          // Kirim notifikasi ke Telegram
           await sendTelegramMessage(errorMessage, TELEGRAM_BOT_TOKEN);
         }
         return false;
@@ -225,7 +217,7 @@ async function refreshTokenHandler(account) {
     return false;
   }
 }
-// GraphQL Payloads
+
 const getGardenPayload = {
   operationName: "GetGardenForCurrentUser",
   query: `query GetGardenForCurrentUser {
@@ -298,49 +290,45 @@ async function getCurrentUser(account) {
 }
 
 async function processAccount(account) {
-    // Tambahan pengecekan isActive di awal fungsi
-    if (account.isActive === false) {
-      consolewithTime(`Akun ${account.userName || 'Unknown'} dilewati karena isActive: false`);
-      return;
-    }
+  if (account.isActive === false) {
+    consolewithTime(`Akun ${account.userName || 'Unknown'} dilewati karena isActive: false`);
+    return;
+  }
+
+  account.userName = await getCurrentUser(account);
+  const loopCount = await getLoopCount(account);
   
-    // Dapatkan nama user
-    account.userName = await getCurrentUser(account);
+  if (loopCount > 0) {
+    consolewithTime(`${account.userName || 'User'} Memulai Grow dengan semua actions...`);
+    const totalResult = await executeGrowAction(account);
     
-    // Proses grow seperti sebelumnya
-    const loopCount = await getLoopCount(account);
-    
-    if (loopCount > 0) {
-      consolewithTime(`${account.userName || 'User'} Memulai Grow dengan semua actions...`);
-      const totalResult = await executeGrowAction(account);
+    if (totalResult !== null) {
+      successfulGrows++; // Tambah counter hanya jika grow berhasil
+      consolewithTime(`${account.userName || 'User'} Grow selesai. Total Value: ${totalResult}`);
       
-      if (totalResult !== null) {
-        successfulGrows++; // Tambah counter hanya jika grow berhasil
-        consolewithTime(`${account.userName || 'User'} Grow selesai. Total Value: ${totalResult}`);
-        
-        // Hanya ambil status dan simpan ke file jika grow berhasil
-        const userStatus = await getCurrentUserStatus(account);
-        if (userStatus) {
-          saveUserStatusToFile(account.userName, userStatus, totalResult);
-        }
-      } else {
-        consolewithTime(`${account.userName || 'User'} Grow gagal dilakukan`);
+      const userStatus = await getCurrentUserStatus(account);
+      if (userStatus) {
+        saveUserStatusToFile(account.userName, userStatus, totalResult);
       }
     } else {
-      consolewithTime(`${account.userName || 'User'} Tidak ada grow yang tersedia`);
+      consolewithTime(`${account.userName || 'User'} Grow gagal dilakukan`);
+      failedAccounts.push(account.userName || 'Unknown'); // Tambahkan username ke daftar gagal
     }
+  } else {
+    consolewithTime(`${account.userName || 'User'} Tidak ada grow yang tersedia`);
+    failedAccounts.push(account.userName || 'Unknown'); // Anggap gagal jika tidak ada grow tersedia
+  }
 }
 
-// Modifikasi fungsi executeGrowActions
 async function executeGrowActions() {
   while (true) {
     successfulGrows = 0; // Reset counter di awal setiap siklus
+    failedAccounts = []; // Reset daftar akun gagal di awal setiap siklus
     consolewithTime('Memulai grow untuk semua akun...');
     getAccounts();
     if (accounts.length === 0) {
       consolewithTime('Tidak ada akun aktif yang tersedia untuk diproses.');
     } else {
-      // Filter hanya akun yang isActive nya true
       const activeAccounts = accounts.filter(account => account.isActive !== false);
       
       if (activeAccounts.length === 0) {
@@ -351,12 +339,17 @@ async function executeGrowActions() {
         }
         consolewithTime('Semua akun aktif telah terproses.');
         
-        // Kirim notifikasi total success ke Telegram
         const timestamp = new Date().toISOString().split('.')[0].replace('T', ' ');
-        const totalMessage = `[${timestamp}] Cycle Summary\n` +
-                           `Total Accounts Processed: ${activeAccounts.length}\n` +
-                           `Total Grow Success: ${successfulGrows}\n` +
-                           `Success Rate: ${activeAccounts.length > 0 ? ((successfulGrows / activeAccounts.length) * 100).toFixed(2) : 0}%`;
+        let totalMessage = `[${timestamp}] Cycle Summary\n` +
+                          `Total Accounts Processed: ${activeAccounts.length}\n` +
+                          `Total Grow Success: ${successfulGrows}\n` +
+                          `Success Rate: ${activeAccounts.length > 0 ? ((successfulGrows / activeAccounts.length) * 100).toFixed(2) : 0}%\n`;
+        
+        if (failedAccounts.length > 0) {
+          totalMessage += `Failed Accounts: ${failedAccounts.join(', ')}\n`;
+        } else {
+          totalMessage += `Failed Accounts: None\n`;
+        }
         
         await sendTelegramMessage(totalMessage, TELEGRAM_BOT_TOKEN_POINT);
         consolewithTime(`Cycle completed. Total Grow Success: ${successfulGrows}/${activeAccounts.length}`);
@@ -364,26 +357,22 @@ async function executeGrowActions() {
     }
 
     consolewithTime('Menunggu 20 menit untuk proses selanjutnya...');
-    await new Promise(resolve => setTimeout(resolve, 20 * 60 * 1000)); // 20 menit dalam milidetik
+    await new Promise(resolve => setTimeout(resolve, 20 * 60 * 1000));
   }
 }
 
 async function saveUserStatusToFile(userName, status, totalResult) {
-  // Tentukan nama folder
   const folderName = 'user_status';
   
-  // Buat folder jika belum ada
   if (!fs.existsSync(folderName)) {
     fs.mkdirSync(folderName);
     consolewithTime(`Folder ${folderName} telah dibuat`);
   }
 
-  // Gunakan username sebagai nama file, ganti karakter yang tidak valid dengan underscore
   const safeUserName = (userName || 'unknown_user').replace(/[^a-zA-Z0-9]/g, '_');
   const fileName = `${folderName}/${safeUserName}_status.txt`;
   const timestamp = new Date().toISOString().split('.')[0].replace('T', ' ');
   
-  // Format totalPoint dengan pemisah ribuan
   const formattedTotalPoint = status.totalPoint.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
   
   let content = `[${timestamp}] Total Points = ${formattedTotalPoint}, Deposit Count = ${status.depositCount}`;
@@ -392,16 +381,14 @@ async function saveUserStatusToFile(userName, status, totalResult) {
   }
   content += '\n';
 
-  const telegramMessage = `[${timestamp}] ${userName|| 'User'} - Grow Success\n` +
+  const telegramMessage = `[${timestamp}] ${userName || 'User'} - Grow Success\n` +
                         `Total Grow: ${totalResult}\n` +
                         `Total Points: ${formattedTotalPoint}\n` +
                         `Deposit Count: ${status.depositCount}`;
   
-  // Send to Telegram
   await sendTelegramMessage(telegramMessage, TELEGRAM_BOT_TOKEN_POINT);
 
   try {
-    // Append ke file, buat baru jika belum ada
     fs.appendFileSync(fileName, content);
     consolewithTime(`Status ${userName || 'User'} berhasil disimpan ke ${fileName}`);
   } catch (error) {
@@ -409,7 +396,6 @@ async function saveUserStatusToFile(userName, status, totalResult) {
   }
 }
 
-// new
 async function makeRequestWithProxyFallback(url, payload, account, axiosInstances) {
   const headers = {
     'Content-Type': 'application/json',
@@ -428,12 +414,10 @@ async function makeRequestWithProxyFallback(url, payload, account, axiosInstance
   };
 
   try {
-    // Coba dengan proxy utama
     return await axiosInstances.primary.post(url, payload, { headers });
   } catch (error) {
     consolewithTime(`Request gagal dengan proxy utama: ${error.message}`);
     
-    // Jika ada proxy cadangan
     if (axiosInstances.secondary) {
       consolewithTime('Mencoba dengan proxy cadangan...');
       try {
