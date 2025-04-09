@@ -25,6 +25,8 @@ const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 ];
 
+let successfulGrows = 0; // Counter untuk Grow Success
+
 function printBanner() {
   console.log("Hanafuda Bot Auto Grow");
 }
@@ -381,6 +383,7 @@ async function processAccount(account) {
     const totalResult = await executeGrowAction(account);
     
     if (totalResult !== null) {
+      successfulGrows++; // Tambah counter hanya jika grow berhasil
       consolewithTime(`${account.userName || 'User'} Grow selesai. Total Value: ${totalResult}`);
       
       // Hanya ambil status dan simpan ke file jika grow berhasil
