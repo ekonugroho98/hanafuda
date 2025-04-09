@@ -328,6 +328,7 @@ async function processAccount(account) {
 // Modifikasi fungsi executeGrowActions
 async function executeGrowActions() {
   while (true) {
+    successfulGrows = 0; // Reset counter di awal setiap siklus
     consolewithTime('Memulai grow untuk semua akun...');
     getAccounts();
     if (accounts.length === 0) {
@@ -343,6 +344,16 @@ async function executeGrowActions() {
           await processAccount(account);
         }
         consolewithTime('Semua akun aktif telah terproses.');
+        
+        // Kirim notifikasi total success ke Telegram
+        const timestamp = new Date().toISOString().split('.')[0].replace('T', ' ');
+        const totalMessage = `[${timestamp}] Cycle Summary\n` +
+                           `Total Accounts Processed: ${activeAccounts.length}\n` +
+                           `Total Grow Success: ${successfulGrows}\n` +
+                           `Success Rate: ${activeAccounts.length > 0 ? ((successfulGrows / activeAccounts.length) * 100).toFixed(2) : 0}%`;
+        
+        await sendTelegramMessage(totalMessage, TELEGRAM_BOT_TOKEN_POINT);
+        consolewithTime(`Cycle completed. Total Grow Success: ${successfulGrows}/${activeAccounts.length}`);
       }
     }
 
