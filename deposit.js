@@ -24,7 +24,7 @@ function getPlatformFromUserAgent(userAgent) {
 
 const RPC_ENDPOINT = "https://mainnet.base.org";
 const CONTRACT_ADDRESS = "0xC5bf05cD32a14BFfb705Fb37a9d218895187376c";
-const CONFIG_FILE = './config_2.json';
+const CONFIG_FILE = './config.json';
 const GRAPHQL_ENDPOINT = 'https://hanafuda-backend-app-520478841386.us-central1.run.app/graphql';
 const TOKEN_REFRESH_ENDPOINT = 'https://securetoken.googleapis.com/v1/token?key=AIzaSyDipzN0VRfTPnMGhQ5PSzO27Cxm3DohJGY';
 const MAX_FEE_THRESHOLD = 0.00000040;
@@ -89,7 +89,7 @@ function loadAccounts() {
     try {
       const fileContent = fs.readFileSync(CONFIG_FILE);
       const configData = JSON.parse(fileContent);
-      userAccounts = configData.map(account => ({
+      userAccounts = configData.filter(account => account.isActiveDeposit !== false).map(account => ({
         ...account,
         proxy: account.proxy,
         proxy2: account.proxy2 // Tambahkan proxy cadangan
@@ -132,72 +132,75 @@ function createAxiosInstance(accountData) {
 async function refreshAuthToken(accountData) {
   logWithTimestamp(`Attempting to refresh token for ${accountData.userName}...`);
   const axiosInstances = createAxiosInstance(accountData);
-  
+
   try {
-    // Coba dengan proxy utama
-    let response = await axiosInstances.primary.post(TOKEN_REFRESH_ENDPOINT, null, {
+    const response = await axiosInstances.primary.post(TOKEN_REFRESH_ENDPOINT, null, {
       params: {
         grant_type: 'refresh_token',
         refresh_token: accountData.refreshToken,
       },
     });
 
-    const updatedAccountData = {
-      ...accountData,
-      authToken: `Bearer ${response.data.access_token}`,
-      refreshToken: response.data.refresh_token,
-    };
-
     const existingConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
     const accountIndex = existingConfig.findIndex(acc => acc.privateKey === accountData.privateKey);
 
     if (accountIndex !== -1) {
-      existingConfig[accountIndex] = updatedAccountData;
+      // ✅ Hanya update authToken, bukan refreshToken atau field lain
+      existingConfig[accountIndex].authToken = `Bearer ${response.data.access_token}`;
+      updateConfigFile(existingConfig);
+      logWithTimestamp('Token refreshed and saved successfully.');
+      return existingConfig[accountIndex].authToken;
     } else {
       logWithTimestamp('Account with matching private key not found!');
       return false;
     }
 
-    updateConfigFile(existingConfig);
-    logWithTimestamp('Token refreshed and saved successfully.');
-    return updatedAccountData.authToken;
   } catch (error) {
     logWithTimestamp(`Failed to refresh token with primary proxy: ${error.message}`);
-    
-    // Jika proxy utama gagal dan ada proxy cadangan
+
     if (axiosInstances.secondary) {
       logWithTimestamp('Attempting with backup proxy...');
       try {
-        let response = await axiosInstances.secondary.post(TOKEN_REFRESH_ENDPOINT, null, {
+        const response = await axiosInstances.secondary.post(TOKEN_REFRESH_ENDPOINT, null, {
           params: {
             grant_type: 'refresh_token',
             refresh_token: accountData.refreshToken,
           },
         });
 
-        const updatedAccountData = {
-          ...accountData,
-          authToken: `Bearer ${response.data.access_token}`,
-          refreshToken: response.data.refresh_token,
-        };
-
         const existingConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
         const accountIndex = existingConfig.findIndex(acc => acc.privateKey === accountData.privateKey);
 
         if (accountIndex !== -1) {
-          existingConfig[accountIndex] = updatedAccountData;
+          // ✅ Hanya update authToken
+          existingConfig[accountIndex].authToken = `Bearer ${response.data.access_token}`;
           updateConfigFile(existingConfig);
           logWithTimestamp('Token refreshed with backup proxy and saved.');
-          return updatedAccountData.authToken;
+          return existingConfig[accountIndex].authToken;
         }
+
       } catch (error2) {
         logWithTimestamp(`Failed to refresh token with backup proxy: ${error2.message}`);
+
+        // ❗Jika error status 400 → nonaktifkan akun
+        if (error2.response?.status === 400) {
+          const existingConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+          const index = existingConfig.findIndex(acc => acc.privateKey === accountData.privateKey);
+          if (index !== -1) {
+            existingConfig[index].isActive = false;
+            updateConfigFile(existingConfig);
+            logWithTimestamp(`Account ${accountData.userName} marked as inactive due to token error 400`);
+          }
+        }
+
         return false;
       }
     }
+
     return false;
   }
 }
+
 
 async function makeRequestWithProxyFallback(url, payload, accountData, axiosInstances) {
   const userAgent = accountData.currentUserAgent || USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];

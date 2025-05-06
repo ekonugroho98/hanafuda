@@ -1,0 +1,29 @@
+version: '3.9'
+services:
+  draw:
+    build:
+      context: .
+    command: ["node", "draw.js"]
+    volumes:
+      - .:/app
+    working_dir: /app
+    restart: always
+
+  grow:
+    build:
+      context: .
+    command: ["node", "grow_all.js"]
+    volumes:
+      - .:/app
+    working_dir: /app
+    restart: always
+
+  deposit:
+    build:
+      context: .
+    command: ["node", "deposit.js"]
+    volumes:
+      - .:/app
+    working_dir: /app
+    restart: always
+

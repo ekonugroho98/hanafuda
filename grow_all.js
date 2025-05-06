@@ -156,93 +156,49 @@ async function sendTelegramMessage(message, token) {
 }
 
 async function refreshTokenHandler(account) {
-  consolewithTime('Mencoba merefresh token...');
+  consolewithTime(`Mencoba merefresh token untuk ${account.userName || 'Unknown'}...`);
   const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
-  
+
   try {
-    let response = await axiosInstances.primary.post(REFRESH_URL, null, {
+    const response = await axiosInstances.primary.post(REFRESH_URL, null, {
       params: {
         grant_type: 'refresh_token',
         refresh_token: account.refreshToken,
       },
     });
 
-    const updatedTokens = {
-      ...account,
-      authToken: `Bearer ${response.data.access_token}`,
-    };
-
     const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
     const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
+
     if (index !== -1) {
-      existingTokens[index] = updatedTokens;
+      // ✅ Hanya update authToken
+      existingTokens[index].authToken = `Bearer ${response.data.access_token}`;
+      saveTokens(existingTokens);
+      consolewithTime(`AuthToken diperbarui untuk ${account.userName || 'Unknown'}`);
+      return existingTokens[index].authToken;
     } else {
-      consolewithTime('Token dengan unique private key tidak ditemukan!');
+      consolewithTime('Akun tidak ditemukan dalam config!');
       return false;
     }
 
-    saveTokens(existingTokens);
-    consolewithTime('Token refreshed and saved successfully.');
-    return updatedTokens.authToken;
   } catch (error) {
-    consolewithTime(`Gagal refresh token dengan proxy utama: ${error.message}`);
-    
-    if (axiosInstances.secondary) {
-      consolewithTime('Mencoba dengan proxy cadangan...');
-      try {
-        let response = await axiosInstances.secondary.post(REFRESH_URL, null, {
-          params: {
-            grant_type: 'refresh_token',
-            refresh_token: account.refreshToken,
-          },
-        });
+    consolewithTime(`Gagal refresh token untuk ${account.userName || 'Unknown'}: ${error.message}`);
 
-        const updatedTokens = {
-          ...account,
-          authToken: `Bearer ${response.data.access_token}`,
-        };
-
-        const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
-        const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
-        if (index !== -1) {
-          existingTokens[index] = updatedTokens;
-          saveTokens(existingTokens);
-          consolewithTime('Token refreshed dengan proxy cadangan dan disimpan.');
-          return updatedTokens.authToken;
-        }
-      } catch (error2) {
-        consolewithTime(`Gagal refresh token dengan proxy cadangan: ${error2.message}`);
-        if (error2.response && error2.response.status === 400) {
-          const timestamp = new Date().toISOString().split('.')[0].replace('T', ' ');
-          const errorMessage = `[${timestamp}] Username: ${account.userName || 'Unknown'} - Gagal refresh token: Request failed with status code 400`;
-          
-          try {
-            fs.appendFileSync('error.txt', errorMessage + '\n');
-            consolewithTime(`Username ${account.userName || 'Unknown'} ditambahkan ke error.txt`);
-          } catch (fsError) {
-            consolewithTime(`Gagal menulis ke error.txt: ${fsError.message}`);
-          }
-
-          try {
-            const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
-            const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
-            if (index !== -1) {
-              existingTokens[index].isActive = false;
-              saveTokens(existingTokens);
-              consolewithTime(`isActive untuk ${account.userName || 'Unknown'} diubah menjadi false di config`);
-            }
-          } catch (configError) {
-            consolewithTime(`Gagal mengubah config: ${configError.message}`);
-          }
-
-          await sendTelegramMessage(errorMessage, TELEGRAM_BOT_TOKEN);
-        }
-        return false;
+    // ❗ Khusus jika gagal dengan status 400, nonaktifkan akun
+    if (error.response?.status === 400) {
+      const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
+      const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
+      if (index !== -1) {
+        existingTokens[index].isActive = false;
+        saveTokens(existingTokens);
+        consolewithTime(`Akun ${account.userName || 'Unknown'} di-nonaktifkan (isActive = false)`);
       }
     }
+
     return false;
   }
 }
+
 
 const getGardenPayload = {
   operationName: "GetGardenForCurrentUser",
@@ -334,7 +290,7 @@ async function processAccount(account) {
       
       const userStatus = await getCurrentUserStatus(account);
       if (userStatus) {
-        saveUserStatusToFile(account.userName, userStatus, totalResult);
+        // saveUserStatusToFile(account.userName, userStatus, totalResult);
       }
     } else {
       consolewithTime(`${account.userName || 'User'} Grow gagal dilakukan`);
