@@ -375,7 +375,7 @@ async function processAccount(account) {
         consolewithTime('Semua akun aktif telah terproses secara berurutan. Menunggu 1 jam untuk siklus berikutnya');
       }
       
-      await new Promise(resolve => setTimeout(resolve, 1200000));
+      await new Promise(resolve => setTimeout(resolve, 3600000)); // Tunggu 1 jam sebelum memulai siklus berikutnya
     }
   }
   

@@ -331,8 +331,8 @@ async function executeGrowActions() {
       }
     }
 
-    consolewithTime('Menunggu 20 menit untuk proses selanjutnya...');
-    await new Promise(resolve => setTimeout(resolve, 1200000));
+    consolewithTime('Menunggu 1 jam untuk proses selanjutnya...');
+    await new Promise(resolve => setTimeout(resolve, 3600000));
   }
 }
 
