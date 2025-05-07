@@ -114,15 +114,12 @@ function saveTokens(tokens) {
 }
 
 function createAxiosInstance(proxyUrl, proxy2Url) {
+  consolewithTime(`Menggunakan proxy utama: ${proxyUrl || 'Tidak ada'}`);
   return {
       primary: axios.create({
           httpsAgent: proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined,
           timeout: 120000
-      }),
-      secondary: proxy2Url ? axios.create({
-          httpsAgent: new HttpsProxyAgent(proxy2Url),
-          timeout: 120000
-      }) : null
+      })
   };
 }
 
@@ -253,8 +250,8 @@ async function getCurrentUser(account) {
       const response = await makeRequestWithProxyFallback(REQUEST_URL, currentUserPayload, account, axiosInstances);
       const userName = response.data?.data?.currentUser?.name;
       if (userName) {
-          account.userName = userName; // Simpan nama pengguna ke objek account
-          return userName;
+          account.userName = account.userName; // Simpan nama pengguna ke objek account
+          return account.userName;
       } else {
           throw new Error('User name not found in response');
       }

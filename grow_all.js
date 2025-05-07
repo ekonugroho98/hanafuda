@@ -129,42 +129,24 @@ const TELEGRAM_CHAT_ID = '1433257992';
 const TELEGRAM_BOT_TOKEN_POINT = '7027009649:AAGGeiyg_GDiFNu5ttx0ddNDNXVF2Jnj7NY';
 
 async function sendTelegramMessage(message, token) {
-
-  proxyUrl = "http://10c5c12e57667dbdbe31:480bccdfa21bd67e@177.54.154.87:11000";
-  proxy2Url = "http://c017a09545c4165a23e2:c590c47537f07228@gw.dataimpulse.com:10000";
-
-  const axiosInstances = createAxiosInstance(proxyUrl, proxy2Url); // Gunakan fungsi createAxiosInstance yang sudah ada
   try {
-    // Coba dengan proxy utama
-    await axiosInstances.primary.post(
+    // Langsung kirim tanpa menggunakan proxy
+    await axios.post(
       `https://api.telegram.org/bot${token}/sendMessage`,
       {
         chat_id: TELEGRAM_CHAT_ID,
         text: message,
+      },
+      {
+        timeout: 30000, // Tambahkan timeout jika diperlukan
       }
     );
-    consolewithTime('Notifikasi berhasil dikirim ke Telegram dengan proxy utama');
+    consolewithTime('Notifikasi berhasil dikirim ke Telegram.');
   } catch (error) {
-    consolewithTime(`Gagal mengirim notifikasi ke Telegram dengan proxy utama: ${error.message}`);
-
-    // Jika proxy cadangan tersedia, coba gunakan
-    if (axiosInstances.secondary) {
-      consolewithTime('Mencoba dengan proxy cadangan untuk Telegram...');
-      try {
-        await axiosInstances.secondary.post(
-          `https://api.telegram.org/bot${token}/sendMessage`,
-          {
-            chat_id: TELEGRAM_CHAT_ID,
-            text: message,
-          }
-        );
-        consolewithTime('Notifikasi berhasil dikirim ke Telegram dengan proxy cadangan');
-      } catch (error2) {
-        consolewithTime(`Gagal mengirim notifikasi ke Telegram dengan proxy cadangan: ${error2.message}`);
-      }
-    }
+    consolewithTime(`Gagal mengirim notifikasi ke Telegram: ${error.message}`);
   }
 }
+
 
 async function refreshTokenHandler(account) {
   consolewithTime(`Mencoba merefresh token untuk ${account.userName || 'Unknown'}...`);
