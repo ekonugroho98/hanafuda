@@ -1,6 +1,7 @@
 const axios = require('axios');
 const fs = require('fs');
 const { HttpsProxyAgent } = require('https-proxy-agent');
+const chokidar = require('chokidar');
 
 const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
@@ -56,10 +57,10 @@ const REFRESH_URL = 'https://securetoken.googleapis.com/v1/token?key=AIzaSyDipzN
 
 let accounts = [];
 
-function getAccounts() {
-  if (fs.existsSync(CONFIG)) {
-    try {
-      const data = fs.readFileSync(CONFIG);
+function loadConfig() {
+  try {
+    if (fs.existsSync(CONFIG)) {
+      const data = fs.readFileSync(CONFIG, 'utf-8');
       const tokensData = JSON.parse(data);
       
       if (tokensData.refreshToken) {
@@ -68,27 +69,37 @@ function getAccounts() {
           authToken: tokensData.authToken,
           userAgent: getRandomUserAgent(),
           proxy: tokensData.proxy,
-          proxy2: tokensData.proxy2
+          proxy2: tokensData.proxy2 // Tambahkan proxy cadangan
         }];
       } else {
         accounts = Object.values(tokensData).map(account => ({
           ...account,
           userAgent: getRandomUserAgent(),
           proxy: account.proxy,
-          proxy2: account.proxy2
+          proxy2: account.proxy2 // Tambahkan proxy cadangan
         }));
       }
+
       consolewithTime(`Mendapatkan ${accounts.length} Akun didalam config`);
-      return JSON.parse(data);
-    } catch (error) {
-      consolewithTime(`Error Load Token: ${error.message}`);
+    } else {
+      consolewithTime('Token tidak ditemukan.');
       process.exit(1);
     }
-  } else {
-    consolewithTime('Token tidak ditemukan.');
+  } catch (error) {
+    consolewithTime(`Error Load Token: ${error.message}`);
     process.exit(1);
   }
 }
+
+// Inisiasi pertama kali
+loadConfig();
+
+// Monitor perubahan config.json
+chokidar.watch(CONFIG).on('change', () => {
+  consolewithTime('Config file changed, reloading...');
+  loadConfig();
+});
+
 
 function saveTokens(tokens) {
   try {
@@ -307,7 +318,7 @@ async function executeGrowActions() {
     successfulGrows = 0; // Reset counter di awal setiap siklus
     failedAccounts = []; // Reset daftar akun gagal di awal setiap siklus
     consolewithTime('Memulai grow untuk semua akun...');
-    getAccounts();
+    loadConfig();
     if (accounts.length === 0) {
       consolewithTime('Tidak ada akun aktif yang tersedia untuk diproses.');
     } else {
@@ -339,7 +350,7 @@ async function executeGrowActions() {
     }
 
     consolewithTime('Menunggu 20 menit untuk proses selanjutnya...');
-    await new Promise(resolve => setTimeout(resolve, 20 * 60 * 1000));
+    await new Promise(resolve => setTimeout(resolve, 1200));
   }
 }
 

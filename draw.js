@@ -1,6 +1,7 @@
 const axios = require('axios');
 const fs = require('fs');
 const { HttpsProxyAgent } = require('https-proxy-agent');
+const chokidar = require('chokidar');
 
 function printBanner() {
     console.log("Hanafuda Bot Auto Draw")
@@ -29,9 +30,9 @@ const USER_AGENTS = [
   "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 ];
 
-function consolewithTime(word) {
+function consolewithTime(message) {
   const now = new Date().toISOString().split('.')[0].replace('T', ' ');
-  console.log(`[${now}] ${word}`);
+  console.log(`[${now}] ${message}`);
 }
 
 function getRandomUserAgent() {
@@ -53,38 +54,53 @@ const CONFIG = './config.json';
 
 let accounts = [];
 
-function getAccounts() {
-  if (fs.existsSync(CONFIG)) {
-      try {
-          const data = fs.readFileSync(CONFIG);
-          const tokensData = JSON.parse(data);
-          
-          if (tokensData.refreshToken) {
-              accounts = [{
-                  refreshToken: tokensData.refreshToken,
-                  authToken: tokensData.authToken,
-                  userAgent: getRandomUserAgent(),
-                  proxy: tokensData.proxy,
-                  proxy2: tokensData.proxy2 // Tambahkan proxy cadangan
-              }];
-          } else {
-              accounts = Object.values(tokensData).map(account => ({
-                  ...account,
-                  userAgent: getRandomUserAgent(),
-                  proxy: account.proxy,
-                  proxy2: account.proxy2 // Tambahkan proxy cadangan
-              }));
-          }
-          consolewithTime(`Mendapatkan ${accounts.length} Akun didalam config`);
-          return JSON.parse(data);
-      } catch (error) {
-          consolewithTime(`Error Load Token: ${error.message}`);
-          process.exit(1);
+// Fungsi untuk memuat config dari file
+function loadConfig() {
+  try {
+    if (fs.existsSync(CONFIG)) {
+      const data = fs.readFileSync(CONFIG, 'utf-8');
+      const tokensData = JSON.parse(data);
+      
+      if (tokensData.refreshToken) {
+        accounts = [{
+          refreshToken: tokensData.refreshToken,
+          authToken: tokensData.authToken,
+          userAgent: getRandomUserAgent(),
+          proxy: tokensData.proxy,
+          proxy2: tokensData.proxy2 // Tambahkan proxy cadangan
+        }];
+      } else {
+        accounts = Object.values(tokensData).map(account => ({
+          ...account,
+          userAgent: getRandomUserAgent(),
+          proxy: account.proxy,
+          proxy2: account.proxy2 // Tambahkan proxy cadangan
+        }));
       }
-  } else {
+
+      consolewithTime(`Mendapatkan ${accounts.length} Akun didalam config`);
+    } else {
       consolewithTime('Token tidak ditemukan.');
       process.exit(1);
+    }
+  } catch (error) {
+    consolewithTime(`Error Load Token: ${error.message}`);
+    process.exit(1);
   }
+}
+
+// Inisiasi pertama kali
+loadConfig();
+
+// Monitor perubahan config.json
+chokidar.watch(CONFIG).on('change', () => {
+  consolewithTime('Config file changed, reloading...');
+  loadConfig();
+});
+
+// Fungsi untuk mendapatkan accounts yang sudah termuat
+function getAccounts() {
+  return accounts;
 }
 
 function saveTokens(tokens) {
@@ -139,7 +155,6 @@ async function refreshTokenHandler(account) {
   } catch (error) {
     consolewithTime(`Gagal refresh token untuk ${account.userName || 'Unknown'}: ${error.message}`);
 
-    // ❗ Khusus jika gagal dengan status 400, nonaktifkan akun
     if (error.response?.status === 400) {
       const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
       const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
@@ -346,7 +361,7 @@ async function processAccount(account) {
   async function executeGardenRewardActions() {
     while (true) {
       consolewithTime('Memulai draw untuk semua akun secara berurutan...');
-      getAccounts();
+      loadConfig();
       
       // Filter hanya akun yang isActive nya true
       const activeAccounts = accounts.filter(account => account.isActive !== false);
