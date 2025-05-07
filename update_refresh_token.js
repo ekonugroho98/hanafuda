@@ -30,15 +30,16 @@ function saveConfig(config) {
     }
 }
 
-// Fungsi untuk memperbarui refreshToken berdasarkan privateKey (userName)
-function updateRefreshToken(privateKey, newRefreshToken) {
+// Fungsi untuk memperbarui refreshToken dan authToken berdasarkan privateKey (userName)
+function updateTokens(privateKey, newRefreshToken, newAuthToken) {
     const config = loadConfig();
     const account = config.find(account => account.privateKey === privateKey);
     
     if (account) {
         account.refreshToken = newRefreshToken;
+        account.authToken = newAuthToken;
         saveConfig(config);
-        console.log(`RefreshToken updated for user ${privateKey}.`);
+        console.log(`Tokens updated for user ${privateKey}.`);
     } else {
         console.error(`User ${privateKey} not found in config.`);
     }
@@ -52,7 +53,9 @@ const rl = readline.createInterface({
 
 rl.question('Enter the user privateKey: ', (privateKey) => {
     rl.question('Enter the new refreshToken: ', (newRefreshToken) => {
-        updateRefreshToken(privateKey, newRefreshToken);
-        rl.close();
+        rl.question('Enter the new authToken: ', (newAuthToken) => {
+            updateTokens(privateKey, newRefreshToken, newAuthToken);
+            rl.close();
+        });
     });
 });
