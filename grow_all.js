@@ -332,7 +332,7 @@ async function executeGrowActions() {
     }
 
     consolewithTime('Menunggu 1 jam untuk proses selanjutnya...');
-    await new Promise(resolve => setTimeout(resolve, 1800000));
+    await new Promise(resolve => setTimeout(resolve, 3600000));
   }
 }
 
