@@ -319,7 +319,7 @@ async function processAccount(account) {
       
       const userStatus = await getCurrentUserStatus(account);
       if (userStatus) {
-        // saveUserStatusToFile(account.userName, userStatus, totalResult);
+         saveUserStatusToFile(account.userName, userStatus, totalResult);
       }
     } else {
       consolewithTime(`${account.userName || 'User'} Grow gagal dilakukan`);
@@ -423,15 +423,10 @@ async function makeRequestWithProxyFallback(url, payload, account, axiosInstance
     'Sec-Fetch-Site': 'cross-site',
     'User-Agent': account.userAgent
   };
-  consolewithTime(`Request Header: ${JSON.stringify(headers, null, 2)}`);
-  consolewithTime(`Request URL: ${url}`);
-  consolewithTime(`Request Payload: ${JSON.stringify(payload, null, 2)}`);
 
   try {
     const response = await axiosInstances.primary.post(url, payload, { headers });
 
-    // Log Full Response Data dengan Stringify
-    consolewithTime(`Response: ${JSON.stringify(response.data, null, 2)}`);
     return response;
   } catch (error) {
     consolewithTime(`Request gagal dengan proxy utama: ${error.message}`);
