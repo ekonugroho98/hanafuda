@@ -51,45 +51,85 @@ function getPlatformFromUserAgent(userAgent) {
   return '"macOS"';
 }
 
-const CONFIG = './config.json';
+
 const REQUEST_URL = 'https://hanafuda-backend-app-520478841386.us-central1.run.app/graphql';
 const REFRESH_URL = 'https://securetoken.googleapis.com/v1/token?key=AIzaSyDipzN0VRfTPnMGhQ5PSzO27Cxm3DohJGY';
 
+const CONFIG = './config.json';
 let accounts = [];
 
+// Fungsi untuk memuat config untuk multiple akun (tanpa memeriksa refreshToken)
 function loadConfig() {
   try {
     if (fs.existsSync(CONFIG)) {
       const data = fs.readFileSync(CONFIG, 'utf-8');
-      const tokensData = JSON.parse(data);
-      
-      if (tokensData.refreshToken) {
-        accounts = [{
-          refreshToken: tokensData.refreshToken,
-          authToken: tokensData.authToken,
-          userAgent: getRandomUserAgent(),
-          proxy: tokensData.proxy,
-          proxy2: tokensData.proxy2 // Tambahkan proxy cadangan
-        }];
-      } else {
-        accounts = Object.values(tokensData).map(account => ({
+      const configData = JSON.parse(data);
+
+      if (Array.isArray(configData)) {
+        accounts = configData.map(account => ({
           ...account,
           userAgent: getRandomUserAgent(),
-          proxy: account.proxy,
-          proxy2: account.proxy2 // Tambahkan proxy cadangan
+          proxy: account.proxy || '',
         }));
+        consolewithTime(`Muat ${accounts.length} akun dari config.`);
+      } else {
+        consolewithTime('Config tidak valid: Format harus berupa array.');
+        process.exit(1);
       }
-
-      consolewithTime(`Mendapatkan ${accounts.length} Akun didalam config`);
     } else {
-      consolewithTime('Token tidak ditemukan.');
+      consolewithTime('File konfigurasi tidak ditemukan.');
       process.exit(1);
     }
   } catch (error) {
-    consolewithTime(`Error Load Token: ${error.message}`);
+    consolewithTime(`Error Load Config: ${error.message}`);
     process.exit(1);
   }
 }
+
+// Fungsi untuk memantau perubahan config secara otomatis
+function watchConfig() {
+  chokidar.watch(CONFIG).on('change', () => {
+    consolewithTime('Config file changed, reloading...');
+    loadConfig();
+  });
+}
+
+// Fungsi untuk mencetak log dengan waktu
+function consolewithTime(message) {
+  const now = new Date().toISOString().split('.')[0].replace('T', ' ');
+  console.log(`[${now}] ${message}`);
+}
+
+// Fungsi untuk mendapatkan User-Agent secara acak
+function getRandomUserAgent() {
+  const USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+  ];
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+}
+
+// Inisiasi pertama kali
+loadConfig();
+watchConfig();
+
+// Fungsi untuk menampilkan semua akun yang dimuat
+function showAccounts() {
+  consolewithTime(`Total akun: ${accounts.length}`);
+  accounts.forEach((account, index) => {
+    consolewithTime(`Akun ${index + 1}:`);
+    consolewithTime(`- User Name: ${account.userName || 'Unknown'}`);
+    consolewithTime(`- Auth Token: ${account.authToken || 'Tidak ada'}`);
+    consolewithTime(`- User Agent: ${account.userAgent}`);
+    consolewithTime(`- Proxy: ${account.proxy || 'Tidak ada'}`);
+  });
+}
+
+// Jalankan untuk menampilkan akun
+showAccounts();
+
 
 // Inisiasi pertama kali
 loadConfig();
@@ -111,16 +151,12 @@ function saveTokens(tokens) {
   }
 }
 
-function createAxiosInstance(proxyUrl, proxy2Url) {
+function createAxiosInstance(proxyUrl) {
   return {
     primary: axios.create({
       httpsAgent: proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined,
       timeout: 30000
     }),
-    secondary: proxy2Url ? axios.create({
-      httpsAgent: new HttpsProxyAgent(proxy2Url),
-      timeout: 30000
-    }) : null
   };
 }
 
@@ -150,7 +186,7 @@ async function sendTelegramMessage(message, token) {
 
 async function refreshTokenHandler(account) {
   consolewithTime(`Mencoba merefresh token untuk ${account.userName || 'Unknown'}...`);
-  const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
+  const axiosInstances = createAxiosInstance(account.proxy);
 
   try {
     const response = await axiosInstances.primary.post(REFRESH_URL, null, {
@@ -249,7 +285,7 @@ const currentUserStatusPayload = {
 };
 
 async function getCurrentUser(account) {
-  const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
+  const axiosInstances = createAxiosInstance(account.proxy);
   try {
     const response = await makeRequestWithProxyFallback(REQUEST_URL, currentUserPayload, account, axiosInstances);
     const userName = account.userName || response.data?.data?.currentUser?.name;
@@ -387,27 +423,36 @@ async function makeRequestWithProxyFallback(url, payload, account, axiosInstance
     'Sec-Fetch-Site': 'cross-site',
     'User-Agent': account.userAgent
   };
+  consolewithTime(`Request Header: ${JSON.stringify(headers, null, 2)}`);
+  consolewithTime(`Request URL: ${url}`);
+  consolewithTime(`Request Payload: ${JSON.stringify(payload, null, 2)}`);
 
   try {
-    return await axiosInstances.primary.post(url, payload, { headers });
+    const response = await axiosInstances.primary.post(url, payload, { headers });
+
+    // Log Full Response Data dengan Stringify
+    consolewithTime(`Response: ${JSON.stringify(response.data, null, 2)}`);
+    return response;
   } catch (error) {
     consolewithTime(`Request gagal dengan proxy utama: ${error.message}`);
     
-    if (axiosInstances.secondary) {
-      consolewithTime('Mencoba dengan proxy cadangan...');
-      try {
-        return await axiosInstances.secondary.post(url, payload, { headers });
-      } catch (error2) {
-        consolewithTime(`Request gagal dengan proxy cadangan: ${error2.message}`);
-        throw error2;
-      }
+    if (error.response) {
+      // Jika ada response dari server
+      consolewithTime(`Error Response Status: ${error.response.status}`);
+      consolewithTime(`Error Response Data: ${JSON.stringify(error.response.data, null, 2)}`);
+    } else if (error.request) {
+      // Jika tidak ada response dari server
+      consolewithTime(`No response received: ${JSON.stringify(error.request, null, 2)}`);
+    } else {
+      consolewithTime(`Request Error: ${error.message}`);
     }
     throw error;
   }
 }
 
+
 async function getCurrentUser(account) {
-  const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
+  const axiosInstances = createAxiosInstance(account.proxy);
   try {
     const response = await makeRequestWithProxyFallback(REQUEST_URL, currentUserPayload, account, axiosInstances);
     const userName = account.userName || response.data?.data?.currentUser?.name;
@@ -423,11 +468,11 @@ async function getCurrentUser(account) {
 }
 
 async function getLoopCount(account, retryOnFailure = true) {
-  const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
+  const axiosInstances = createAxiosInstance(account.proxy);
   try {
     consolewithTime(`${account.userName || 'User'} Checking Grow Available...`);
     const response = await makeRequestWithProxyFallback(REQUEST_URL, getGardenPayload, account, axiosInstances);
-    
+
     const growActionCount = response.data?.data?.getGardenForCurrentUser?.gardenStatus?.growActionCount;
     consolewithTime(`${account.userName || 'User'} Test data Grow: ${growActionCount}`);
     if (typeof growActionCount === 'number') {
@@ -438,7 +483,6 @@ async function getLoopCount(account, retryOnFailure = true) {
     }
   } catch (error) {
     consolewithTime(`${account.userName || 'User'} Token Expired!`);
-
     if (retryOnFailure) {
       const tokenRefreshed = await refreshTokenHandler(account);
       if (tokenRefreshed) {
@@ -451,7 +495,7 @@ async function getLoopCount(account, retryOnFailure = true) {
 }
 
 async function executeGrowAction(account) {
-  const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
+  const axiosInstances = createAxiosInstance(account.proxy);
   try {
     consolewithTime(`${account.userName || 'User'} Executing Grow Action...`);
     const response = await makeRequestWithProxyFallback(REQUEST_URL, executeGrowPayload, account, axiosInstances);
@@ -471,7 +515,7 @@ async function executeGrowAction(account) {
 }
 
 async function getCurrentUserStatus(account) {
-  const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
+  const axiosInstances = createAxiosInstance(account.proxy);
   try {
     const response = await makeRequestWithProxyFallback(REQUEST_URL, currentUserStatusPayload, account, axiosInstances);
     
