@@ -37,6 +37,9 @@ const MIN_DELAY_BETWEEN_ACCOUNTS = 5000; // 5 seconds
 const MAX_DELAY_BETWEEN_ACCOUNTS = 10000; // 10 seconds
 let lastTokenRefresh = 0;
 
+let isProcessingAccounts = false;
+let configNeedsReload = false;
+
 function printBanner() {
   console.log("Hanafuda Bot Auto Grow");
 }
@@ -80,6 +83,7 @@ function loadConfig() {
           proxy: account.proxy || '',
         }));
         consolewithTime(`Muat ${accounts.length} akun dari config.`);
+        return true;
       } else {
         consolewithTime('Config tidak valid: Format harus berupa array.');
         process.exit(1);
@@ -90,15 +94,15 @@ function loadConfig() {
     }
   } catch (error) {
     consolewithTime(`Error Load Config: ${error.message}`);
-    process.exit(1);
+    return false;
   }
 }
 
 // Fungsi untuk memantau perubahan config secara otomatis
 function watchConfig() {
   chokidar.watch(CONFIG).on('change', () => {
-    consolewithTime('Config file changed, reloading...');
-    loadConfig();
+    consolewithTime('Config file changed, waiting for current cycle to complete...');
+    configNeedsReload = true;
   });
 }
 
@@ -119,9 +123,18 @@ function getRandomUserAgent() {
   return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
-// Inisiasi pertama kali
+// First load
 loadConfig();
 watchConfig();
+
+// Second load (duplicate)
+loadConfig();
+
+// Third load (duplicate)
+chokidar.watch(CONFIG).on('change', () => {
+  consolewithTime('Config file changed, reloading...');
+  loadConfig();
+});
 
 // Fungsi untuk menampilkan semua akun yang dimuat
 function showAccounts() {
@@ -137,16 +150,6 @@ function showAccounts() {
 
 // Jalankan untuk menampilkan akun
 showAccounts();
-
-
-// Inisiasi pertama kali
-loadConfig();
-
-// Monitor perubahan config.json
-chokidar.watch(CONFIG).on('change', () => {
-  consolewithTime('Config file changed, reloading...');
-  loadConfig();
-});
 
 
 function saveTokens(tokens) {
