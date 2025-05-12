@@ -188,20 +188,29 @@ const TELEGRAM_BOT_TOKEN_POINT = '7027009649:AAGGeiyg_GDiFNu5ttx0ddNDNXVF2Jnj7NY
 
 async function sendTelegramMessage(message, token) {
   try {
-    // Langsung kirim tanpa menggunakan proxy
-    await axios.post(
+    consolewithTime(`Attempting to send Telegram message with token: ${token.substring(0, 10)}...`);
+    const response = await axios.post(
       `https://api.telegram.org/bot${token}/sendMessage`,
       {
         chat_id: TELEGRAM_CHAT_ID,
         text: message,
+        parse_mode: 'HTML'
       },
       {
-        timeout: 30000, // Tambahkan timeout jika diperlukan
+        timeout: 30000,
       }
     );
-    consolewithTime('Notifikasi berhasil dikirim ke Telegram.');
+    
+    if (response.data && response.data.ok) {
+      consolewithTime('Telegram message sent successfully');
+    } else {
+      consolewithTime(`Telegram API returned unexpected response: ${JSON.stringify(response.data)}`);
+    }
   } catch (error) {
-    consolewithTime(`Gagal mengirim notifikasi ke Telegram: ${error.message}`);
+    consolewithTime(`Failed to send Telegram message: ${error.message}`);
+    if (error.response) {
+      consolewithTime(`Telegram API error response: ${JSON.stringify(error.response.data)}`);
+    }
   }
 }
 
@@ -407,6 +416,9 @@ async function executeGrowActions() {
             
             consolewithTime('Semua akun aktif telah terproses secara berurutan. Menunggu 1 jam untuk siklus berikutnya');
         }
+        
+        successfulGrows = 0;
+        failedAccounts = [];
         
         await new Promise(resolve => setTimeout(resolve, 1800000)); // Wait 1 hour before next cycle
     }
