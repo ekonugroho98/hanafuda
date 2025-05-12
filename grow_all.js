@@ -30,7 +30,7 @@ let successfulGrows = 0; // Counter untuk Grow Success
 let failedAccounts = []; // Array untuk menyimpan username yang gagal
 
 // Add rate limiting constants
-const TOKEN_REFRESH_COOLDOWN = 5 * 60 * 1000; // 5 minutes
+const TOKEN_REFRESH_COOLDOWN = 10000; // 10 seconds
 const MIN_DELAY_BETWEEN_GROWS = 2000; // 2 seconds
 const MAX_DELAY_BETWEEN_GROWS = 5000; // 5 seconds
 const MIN_DELAY_BETWEEN_ACCOUNTS = 5000; // 5 seconds
