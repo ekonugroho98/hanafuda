@@ -74,6 +74,8 @@ function loadConfig() {
   try {
     if (fs.existsSync(CONFIG)) {
       const data = fs.readFileSync(CONFIG, 'utf-8');
+      consolewithTime(`DEBUG: Raw config data length: ${data.length}`);
+      consolewithTime(`DEBUG: Raw config data (first 200 chars): ${data.slice(0, 200)}`);
       const configData = JSON.parse(data);
 
       if (Array.isArray(configData)) {
@@ -94,6 +96,12 @@ function loadConfig() {
     }
   } catch (error) {
     consolewithTime(`Error Load Config: ${error.message}`);
+    try {
+      const data = fs.readFileSync(CONFIG, 'utf-8');
+      consolewithTime(`DEBUG: Failed JSON data (first 200 chars): ${data.slice(0, 200)}`);
+    } catch (e) {
+      consolewithTime('DEBUG: Could not read config file for debug.');
+    }
     return false;
   }
 }
@@ -139,13 +147,6 @@ chokidar.watch(CONFIG).on('change', () => {
 // Fungsi untuk menampilkan semua akun yang dimuat
 function showAccounts() {
   consolewithTime(`Total akun: ${accounts.length}`);
-  accounts.forEach((account, index) => {
-    consolewithTime(`Akun ${index + 1}:`);
-    consolewithTime(`- User Name: ${account.userName || 'Unknown'}`);
-    consolewithTime(`- Auth Token: ${account.authToken || 'Tidak ada'}`);
-    consolewithTime(`- User Agent: ${account.userAgent}`);
-    consolewithTime(`- Proxy: ${account.proxy || 'Tidak ada'}`);
-  });
 }
 
 // Jalankan untuk menampilkan akun
