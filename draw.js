@@ -54,6 +54,10 @@ const CONFIG = './config.json';
 
 let accounts = [];
 
+// Add delays between token refreshes
+const TOKEN_REFRESH_COOLDOWN = 5 * 60 * 1000; // 5 minutes
+let lastTokenRefresh = 0;
+
 // Fungsi untuk memuat config dari file
 function loadConfig() {
   try {
@@ -124,6 +128,11 @@ function createAxiosInstance(proxyUrl, proxy2Url) {
 }
 
 async function refreshTokenHandler(account) {
+  const now = Date.now();
+  if (now - lastTokenRefresh < TOKEN_REFRESH_COOLDOWN) {
+    await new Promise(resolve => setTimeout(resolve, TOKEN_REFRESH_COOLDOWN - (now - lastTokenRefresh)));
+  }
+  lastTokenRefresh = Date.now();
   consolewithTime(`Mencoba merefresh token untuk ${account.userName || 'Unknown'}...`);
   const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
 
@@ -160,6 +169,22 @@ async function refreshTokenHandler(account) {
         saveTokens(existingTokens);
         consolewithTime(`Akun ${account.userName || 'Unknown'} di-nonaktifkan (isActive = false)`);
       }
+    }
+
+    if (error.response?.status === 429) { // Rate limit
+      consolewithTime(`Rate limit hit for ${account.userName}, waiting 15 minutes...`);
+      await new Promise(resolve => setTimeout(resolve, 15 * 60 * 1000));
+      return refreshTokenHandler(account);
+    }
+    if (error.response?.status === 403) { // Possible ban
+      consolewithTime(`Possible ban detected for ${account.userName}, marking as inactive`);
+      const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
+      const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
+      if (index !== -1) {
+        existingTokens[index].isActive = false;
+        saveTokens(existingTokens);
+      }
+      return false;
     }
 
     return false;
@@ -207,7 +232,10 @@ const currentUserPayload = {
   }`
 };
 
-async function makeRequestWithProxyFallback(url, payload, account, axiosInstances) {
+async function makeRequestWithProxyFallback(url, payload, account, axiosInstances, retryCount = 0) {
+  const maxRetries = 3;
+  const baseDelay = 1000;
+  
   const headers = {
       'Content-Type': 'application/json',
       'Authorization': account.authToken,
@@ -225,20 +253,12 @@ async function makeRequestWithProxyFallback(url, payload, account, axiosInstance
   };
 
   try {
-      // Coba dengan proxy utama
       return await axiosInstances.primary.post(url, payload, { headers });
   } catch (error) {
-      consolewithTime(`Request gagal dengan proxy utama: ${error.message}`);
-      
-      // Jika ada proxy cadangan
-      if (axiosInstances.secondary) {
-          consolewithTime('Mencoba dengan proxy cadangan...');
-          try {
-              return await axiosInstances.secondary.post(url, payload, { headers });
-          } catch (error2) {
-              consolewithTime(`Request gagal dengan proxy cadangan: ${error2.message}`);
-              throw error2;
-          }
+      if (retryCount < maxRetries) {
+          const delay = baseDelay * Math.pow(2, retryCount);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          return makeRequestWithProxyFallback(url, payload, account, axiosInstances, retryCount + 1);
       }
       throw error;
   }
@@ -313,6 +333,11 @@ async function initiateDrawAction(account) {
   }
 }
 
+// Add random delays to make behavior more human-like
+function getRandomDelay(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
 async function processAccount(account) {
     // Tambahan pengecekan isActive di awal fungsi
     if (account.isActive === false) {
@@ -346,7 +371,7 @@ async function processAccount(account) {
           break;
         }
         
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await new Promise(resolve => setTimeout(resolve, getRandomDelay(1000, 3000)));
       }
   
       consolewithTime(`${account.userName || 'User'} Semua draw telah selesai dilakukan. Total kartu dibuka: ${totalResult}`);
@@ -370,7 +395,7 @@ async function processAccount(account) {
           consolewithTime(`Memproses akun: ${account.userName || 'Unknown User'}...`);
           await processAccount(account);
           consolewithTime(`Selesai memproses akun: ${account.userName || 'Unknown User'}`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await new Promise(resolve => setTimeout(resolve, getRandomDelay(5000, 10000)));
         }
         consolewithTime('Semua akun aktif telah terproses secara berurutan. Menunggu 1 jam untuk siklus berikutnya');
       }

@@ -29,6 +29,14 @@ const USER_AGENTS = [
 let successfulGrows = 0; // Counter untuk Grow Success
 let failedAccounts = []; // Array untuk menyimpan username yang gagal
 
+// Add rate limiting constants
+const TOKEN_REFRESH_COOLDOWN = 5 * 60 * 1000; // 5 minutes
+const MIN_DELAY_BETWEEN_GROWS = 2000; // 2 seconds
+const MAX_DELAY_BETWEEN_GROWS = 5000; // 5 seconds
+const MIN_DELAY_BETWEEN_ACCOUNTS = 5000; // 5 seconds
+const MAX_DELAY_BETWEEN_ACCOUNTS = 10000; // 10 seconds
+let lastTokenRefresh = 0;
+
 function printBanner() {
   console.log("Hanafuda Bot Auto Grow");
 }
@@ -151,13 +159,23 @@ function saveTokens(tokens) {
   }
 }
 
+// Add random delay function
+function getRandomDelay(min, max) {
+    return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+// Improve createAxiosInstance with better timeout and retry logic
 function createAxiosInstance(proxyUrl) {
-  return {
-    primary: axios.create({
-      httpsAgent: proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined,
-      timeout: 30000
-    }),
-  };
+    return {
+        primary: axios.create({
+            httpsAgent: proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined,
+            timeout: 60000, // Increased timeout to 60 seconds
+            maxRedirects: 5,
+            validateStatus: function (status) {
+                return status >= 200 && status < 500; // Accept all status codes less than 500
+            }
+        })
+    };
 }
 
 const TELEGRAM_BOT_TOKEN = '7987739259:AAG8BBMC8O2p1mLOTT_aQOd8yRPyqVPNX1A';
@@ -184,48 +202,71 @@ async function sendTelegramMessage(message, token) {
 }
 
 
+// Improve refreshTokenHandler with rate limiting and better error handling
 async function refreshTokenHandler(account) {
-  consolewithTime(`Mencoba merefresh token untuk ${account.userName || 'Unknown'}...`);
-  const axiosInstances = createAxiosInstance(account.proxy);
-
-  try {
-    const response = await axiosInstances.primary.post(REFRESH_URL, null, {
-      params: {
-        grant_type: 'refresh_token',
-        refresh_token: account.refreshToken,
-      },
-    });
-
-    const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
-    const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
-
-    if (index !== -1) {
-      // ✅ Hanya update authToken
-      existingTokens[index].authToken = `Bearer ${response.data.access_token}`;
-      saveTokens(existingTokens);
-      consolewithTime(`AuthToken diperbarui untuk ${account.userName || 'Unknown'}`);
-      return existingTokens[index].authToken;
-    } else {
-      consolewithTime('Akun tidak ditemukan dalam config!');
-      return false;
+    const now = Date.now();
+    if (now - lastTokenRefresh < TOKEN_REFRESH_COOLDOWN) {
+        const waitTime = TOKEN_REFRESH_COOLDOWN - (now - lastTokenRefresh);
+        await new Promise(resolve => setTimeout(resolve, waitTime));
     }
+    lastTokenRefresh = Date.now();
 
-  } catch (error) {
-    consolewithTime(`Gagal refresh token untuk ${account.userName || 'Unknown'}: ${error.message}`);
+    consolewithTime(`Mencoba merefresh token untuk ${account.userName || 'Unknown'}...`);
+    const axiosInstances = createAxiosInstance(account.proxy);
 
-    // ❗ Khusus jika gagal dengan status 400, nonaktifkan akun
-    if (error.response?.status === 400) {
-      const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
-      const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
-      if (index !== -1) {
-        existingTokens[index].isActive = false;
-        saveTokens(existingTokens);
-        consolewithTime(`Akun ${account.userName || 'Unknown'} di-nonaktifkan (isActive = false)`);
-      }
+    try {
+        const response = await axiosInstances.primary.post(REFRESH_URL, null, {
+            params: {
+                grant_type: 'refresh_token',
+                refresh_token: account.refreshToken,
+            },
+        });
+
+        const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
+        const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
+
+        if (index !== -1) {
+            existingTokens[index].authToken = `Bearer ${response.data.access_token}`;
+            saveTokens(existingTokens);
+            consolewithTime(`AuthToken diperbarui untuk ${account.userName || 'Unknown'}`);
+            return existingTokens[index].authToken;
+        } else {
+            consolewithTime('Akun tidak ditemukan dalam config!');
+            return false;
+        }
+
+    } catch (error) {
+        consolewithTime(`Gagal refresh token untuk ${account.userName || 'Unknown'}: ${error.message}`);
+
+        if (error.response?.status === 429) { // Rate limit
+            consolewithTime(`Rate limit hit for ${account.userName}, waiting 15 minutes...`);
+            await new Promise(resolve => setTimeout(resolve, 15 * 60 * 1000));
+            return refreshTokenHandler(account);
+        }
+
+        if (error.response?.status === 403) { // Possible ban
+            consolewithTime(`Possible ban detected for ${account.userName}, marking as inactive`);
+            const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
+            const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
+            if (index !== -1) {
+                existingTokens[index].isActive = false;
+                saveTokens(existingTokens);
+            }
+            return false;
+        }
+
+        if (error.response?.status === 400) {
+            const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
+            const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
+            if (index !== -1) {
+                existingTokens[index].isActive = false;
+                saveTokens(existingTokens);
+                consolewithTime(`Akun ${account.userName || 'Unknown'} di-nonaktifkan (isActive = false)`);
+            }
+        }
+
+        return false;
     }
-
-    return false;
-  }
 }
 
 
@@ -300,76 +341,69 @@ async function getCurrentUser(account) {
   }
 }
 
+// Improve processAccount with better delays and error handling
 async function processAccount(account) {
-  if (account.isActive === false) {
-    consolewithTime(`Akun ${account.userName || 'Unknown'} dilewati karena isActive: false`);
-    return;
-  }
-
-  account.userName = await getCurrentUser(account);
-  const loopCount = await getLoopCount(account);
-  
-  if (loopCount > 0) {
-    consolewithTime(`${account.userName || 'User'} Memulai Grow dengan semua actions...`);
-    const totalResult = await executeGrowAction(account);
-    
-    if (totalResult !== null) {
-      successfulGrows++; // Tambah counter hanya jika grow berhasil
-      consolewithTime(`${account.userName || 'User'} Grow selesai. Total Value: ${totalResult}`);
-      
-      const userStatus = await getCurrentUserStatus(account);
-      if (userStatus) {
-         saveUserStatusToFile(account.userName, userStatus, totalResult);
-      }
-    } else {
-      consolewithTime(`${account.userName || 'User'} Grow gagal dilakukan`);
-      failedAccounts.push(account.userName || 'Unknown'); // Tambahkan username ke daftar gagal
+    if (account.isActive === false) {
+        consolewithTime(`Akun ${account.userName || 'Unknown'} dilewati karena isActive: false`);
+        return;
     }
-  } else {
-    consolewithTime(`${account.userName || 'User'} Tidak ada grow yang tersedia`);
-    failedAccounts.push(account.userName || 'Unknown'); // Anggap gagal jika tidak ada grow tersedia
-  }
+
+    if (!account.userName) {
+        await getCurrentUser(account);
+    }
+
+    const loopCount = await getLoopCount(account);
+    
+    if (loopCount > 0) {
+        consolewithTime(`${account.userName || 'User'} Memulai grow...`);
+        const result = await executeGrowAction(account);
+        
+        if (result) {
+            successfulGrows++;
+            consolewithTime(`${account.userName || 'User'} Grow berhasil! Total grow berhasil: ${successfulGrows}`);
+            await saveUserStatusToFile(account.userName, 'success', result);
+        } else {
+            failedAccounts.push(account.userName);
+            consolewithTime(`${account.userName || 'User'} Grow gagal! Total gagal: ${failedAccounts.length}`);
+            await saveUserStatusToFile(account.userName, 'failed', null);
+        }
+        
+        // Add random delay between grows
+        await new Promise(resolve => setTimeout(resolve, getRandomDelay(MIN_DELAY_BETWEEN_GROWS, MAX_DELAY_BETWEEN_GROWS)));
+    } else {
+        consolewithTime(`${account.userName || 'User'} Tidak ada grow yang tersedia (Count: ${loopCount})`);
+    }
 }
 
+// Improve executeGrowActions with better account handling and delays
 async function executeGrowActions() {
-  while (true) {
-    successfulGrows = 0; // Reset counter di awal setiap siklus
-    failedAccounts = []; // Reset daftar akun gagal di awal setiap siklus
-    consolewithTime('Memulai grow untuk semua akun...');
-    loadConfig();
-    if (accounts.length === 0) {
-      consolewithTime('Tidak ada akun aktif yang tersedia untuk diproses.');
-    } else {
-      const activeAccounts = accounts.filter(account => account.isActive !== false);
-      
-      if (activeAccounts.length === 0) {
-        consolewithTime('Tidak ada akun dengan isActive: true yang tersedia untuk diproses.');
-      } else {
-        for (let account of activeAccounts) {
-          await processAccount(account);
-        }
-        consolewithTime('Semua akun aktif telah terproses.');
+    while (true) {
+        consolewithTime('Memulai grow untuk semua akun secara berurutan...');
+        loadConfig();
         
-        const timestamp = new Date().toISOString().split('.')[0].replace('T', ' ');
-        let totalMessage = `[${timestamp}] Cycle Summary\n` +
-                          `Total Accounts Processed: ${activeAccounts.length}\n` +
-                          `Total Grow Success: ${successfulGrows}\n` +
-                          `Success Rate: ${activeAccounts.length > 0 ? ((successfulGrows / activeAccounts.length) * 100).toFixed(2) : 0}%\n`;
+        const activeAccounts = accounts.filter(account => account.isActive !== false);
         
-        if (failedAccounts.length > 0) {
-          totalMessage += `Failed Accounts: ${failedAccounts.join(', ')}\n`;
+        if (activeAccounts.length === 0) {
+            consolewithTime('Tidak ada akun dengan isActive: true yang tersedia untuk diproses.');
         } else {
-          totalMessage += `Failed Accounts: None\n`;
+            for (let account of activeAccounts) {
+                consolewithTime(`Memproses akun: ${account.userName || 'Unknown User'}...`);
+                await processAccount(account);
+                consolewithTime(`Selesai memproses akun: ${account.userName || 'Unknown User'}`);
+                
+                // Add random delay between accounts
+                await new Promise(resolve => setTimeout(resolve, getRandomDelay(MIN_DELAY_BETWEEN_ACCOUNTS, MAX_DELAY_BETWEEN_ACCOUNTS)));
+            }
+            
+            // Send summary to Telegram
+            const summary = `Grow Summary:\nSuccess: ${successfulGrows}\nFailed: ${failedAccounts.length}\nFailed Accounts: ${failedAccounts.join(', ')}`;
+            await sendTelegramMessage(summary, TELEGRAM_BOT_TOKEN);
+            
+            consolewithTime('Semua akun aktif telah terproses secara berurutan. Menunggu 1 jam untuk siklus berikutnya');
         }
         
-        await sendTelegramMessage(totalMessage, TELEGRAM_BOT_TOKEN_POINT);
-        consolewithTime(`Cycle completed. Total Grow Success: ${successfulGrows}/${activeAccounts.length}`);
-      }
+        await new Promise(resolve => setTimeout(resolve, 1800000)); // Wait 1 hour before next cycle
     }
-
-    consolewithTime('Menunggu 1 jam untuk proses selanjutnya...');
-    await new Promise(resolve => setTimeout(resolve, 3600000));
-  }
 }
 
 async function saveUserStatusToFile(userName, status, totalResult) {
@@ -407,59 +441,38 @@ async function saveUserStatusToFile(userName, status, totalResult) {
   }
 }
 
-async function makeRequestWithProxyFallback(url, payload, account, axiosInstances) {
-  const headers = {
-    'Content-Type': 'application/json',
-    'Authorization': account.authToken,
-    'Accept-Language': 'en-US,en;q=0.9',
-    'Origin': 'https://hanafuda.hana.network',
-    'Priority': 'u=1, i',
-    'Referer': 'https://hanafuda.hana.network/',
-    'Sec-Ch-Ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
-    'Sec-Ch-Ua-Mobile': '?0',
-    'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(account.userAgent),
-    'Sec-Fetch-Dest': 'empty',
-    'Sec-Fetch-Mode': 'cors',
-    'Sec-Fetch-Site': 'cross-site',
-    'User-Agent': account.userAgent
-  };
-
-  try {
-    const response = await axiosInstances.primary.post(url, payload, { headers });
-
-    return response;
-  } catch (error) {
-    consolewithTime(`Request gagal dengan proxy utama: ${error.message}`);
+// Improve makeRequestWithProxyFallback with exponential backoff
+async function makeRequestWithProxyFallback(url, payload, account, axiosInstances, retryCount = 0) {
+    const maxRetries = 3;
+    const baseDelay = 1000;
     
-    if (error.response) {
-      // Jika ada response dari server
-      consolewithTime(`Error Response Status: ${error.response.status}`);
-      consolewithTime(`Error Response Data: ${JSON.stringify(error.response.data, null, 2)}`);
-    } else if (error.request) {
-      // Jika tidak ada response dari server
-      consolewithTime(`No response received: ${JSON.stringify(error.request, null, 2)}`);
-    } else {
-      consolewithTime(`Request Error: ${error.message}`);
-    }
-    throw error;
-  }
-}
+    const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': account.authToken,
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Origin': 'https://hanafuda.hana.network',
+        'Priority': 'u=1, i',
+        'Referer': 'https://hanafuda.hana.network/',
+        'Sec-Ch-Ua': '"Chromium";v="134", "Not-A.Brand";v="24", "Google Chrome";v="134"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': getPlatformFromUserAgent(account.userAgent),
+        'Sec-Fetch-Dest': 'empty',
+        'Sec-Fetch-Mode': 'cors',
+        'Sec-Fetch-Site': 'cross-site',
+        'User-Agent': account.userAgent
+    };
 
-
-async function getCurrentUser(account) {
-  const axiosInstances = createAxiosInstance(account.proxy);
-  try {
-    const response = await makeRequestWithProxyFallback(REQUEST_URL, currentUserPayload, account, axiosInstances);
-    const userName = account.userName || response.data?.data?.currentUser?.name;
-    if (userName) {
-      return userName;
-    } else {
-      throw new Error('User name not found in response');
+    try {
+        return await axiosInstances.primary.post(url, payload, { headers });
+    } catch (error) {
+        if (retryCount < maxRetries) {
+            const delay = baseDelay * Math.pow(2, retryCount);
+            consolewithTime(`Request failed, retrying in ${delay/1000} seconds... (Attempt ${retryCount + 1}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return makeRequestWithProxyFallback(url, payload, account, axiosInstances, retryCount + 1);
+        }
+        throw error;
     }
-  } catch (error) {
-    consolewithTime(`Error fetching current user data: ${error.message}`);
-    return null;
-  }
 }
 
 async function getLoopCount(account, retryOnFailure = true) {
