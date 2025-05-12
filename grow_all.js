@@ -365,11 +365,13 @@ async function processAccount(account) {
         if (result) {
             successfulGrows++;
             consolewithTime(`${account.userName || 'User'} Grow berhasil! Total grow berhasil: ${successfulGrows}`);
-            await saveUserStatusToFile(account.userName, 'success', result);
+            const status = await getCurrentUserStatus(account);
+            await saveUserStatusToFile(account.userName, status, result);
         } else {
             failedAccounts.push(account.userName);
             consolewithTime(`${account.userName || 'User'} Grow gagal! Total gagal: ${failedAccounts.length}`);
-            await saveUserStatusToFile(account.userName, 'failed', null);
+            const status = await getCurrentUserStatus(account);
+            await saveUserStatusToFile(account.userName, status, null);
         }
         
         // Add random delay between grows
