@@ -182,7 +182,6 @@ function createAxiosInstance(proxyUrl) {
     };
 }
 
-const TELEGRAM_BOT_TOKEN = '7987739259:AAG8BBMC8O2p1mLOTT_aQOd8yRPyqVPNX1A';
 const TELEGRAM_CHAT_ID = '1433257992';
 const TELEGRAM_BOT_TOKEN_POINT = '7027009649:AAGGeiyg_GDiFNu5ttx0ddNDNXVF2Jnj7NY';
 
@@ -358,7 +357,7 @@ async function getCurrentUser(account) {
 async function processAccount(account) {
     if (account.isActive === false) {
         consolewithTime(`Akun ${account.userName || 'Unknown'} dilewati karena isActive: false`);
-        return;
+        return { success: false, points: 0 };
     }
 
     if (!account.userName) {
@@ -366,27 +365,32 @@ async function processAccount(account) {
     }
 
     const loopCount = await getLoopCount(account);
+    consolewithTime(`DEBUG - Loop count for ${account.userName}: ${loopCount}`);
     
     if (loopCount > 0) {
         consolewithTime(`${account.userName || 'User'} Memulai grow...`);
         const result = await executeGrowAction(account);
+        consolewithTime(`DEBUG - Grow result for ${account.userName}:`, result);
         
         if (result) {
             successfulGrows++;
             consolewithTime(`${account.userName || 'User'} Grow berhasil! Total grow berhasil: ${successfulGrows}`);
             const status = await getCurrentUserStatus(account);
             await saveUserStatusToFile(account.userName, status, result);
+            return { success: true, points: result };
         } else {
             failedAccounts.push(account.userName);
             consolewithTime(`${account.userName || 'User'} Grow gagal! Total gagal: ${failedAccounts.length}`);
             const status = await getCurrentUserStatus(account);
             await saveUserStatusToFile(account.userName, status, null);
+            return { success: false, points: 0 };
         }
         
         // Add random delay between grows
         await new Promise(resolve => setTimeout(resolve, getRandomDelay(MIN_DELAY_BETWEEN_GROWS, MAX_DELAY_BETWEEN_GROWS)));
     } else {
         consolewithTime(`${account.userName || 'User'} Tidak ada grow yang tersedia (Count: ${loopCount})`);
+        return { success: false, points: 0 };
     }
 }
 
@@ -397,22 +401,69 @@ async function executeGrowActions() {
         loadConfig();
         
         const activeAccounts = accounts.filter(account => account.isActive !== false);
+        let totalSuccessPoints = 0;
+        let totalFailedPoints = 0;
+        let failedAccountsWithPoints = [];
+        let successfulAccountsWithPoints = [];
+        
+        consolewithTime(`Total akun aktif: ${activeAccounts.length}`);
         
         if (activeAccounts.length === 0) {
             consolewithTime('Tidak ada akun dengan isActive: true yang tersedia untuk diproses.');
         } else {
             for (let account of activeAccounts) {
                 consolewithTime(`Memproses akun: ${account.userName || 'Unknown User'}...`);
-                await processAccount(account);
+                const result = await processAccount(account);
+                
+                consolewithTime(`DEBUG - Result for ${account.userName}:`, result);
+                
+                if (result && result.success) {
+                    successfulGrows++;
+                    totalSuccessPoints += result.points || 0;
+                    successfulAccountsWithPoints.push({
+                        username: account.userName,
+                        points: result.points || 0
+                    });
+                    consolewithTime(`DEBUG - Success for ${account.userName}: ${result.points} points`);
+                } else {
+                    failedAccounts.push(account.userName);
+                    totalFailedPoints += result?.points || 0;
+                    failedAccountsWithPoints.push({
+                        username: account.userName,
+                        points: result?.points || 0
+                    });
+                    consolewithTime(`DEBUG - Failed for ${account.userName}: ${result?.points || 0} points`);
+                }
+                
                 consolewithTime(`Selesai memproses akun: ${account.userName || 'Unknown User'}`);
                 
                 // Add random delay between accounts
                 await new Promise(resolve => setTimeout(resolve, getRandomDelay(MIN_DELAY_BETWEEN_ACCOUNTS, MAX_DELAY_BETWEEN_ACCOUNTS)));
             }
             
-            // Send summary to Telegram
-            const summary = `Grow Summary:\nSuccess: ${successfulGrows}\nFailed: ${failedAccounts.length}\nFailed Accounts: ${failedAccounts.join(', ')}`;
-            await sendTelegramMessage(summary, TELEGRAM_BOT_TOKEN);
+            consolewithTime('DEBUG - Preparing summary report...');
+            consolewithTime(`DEBUG - Successful grows: ${successfulGrows}`);
+            consolewithTime(`DEBUG - Total success points: ${totalSuccessPoints}`);
+            consolewithTime(`DEBUG - Failed accounts: ${failedAccounts.length}`);
+            consolewithTime(`DEBUG - Total failed points: ${totalFailedPoints}`);
+            
+            // Send detailed summary to Telegram
+            const summary = `🌱 Grow Summary Report 🌱\n\n` +
+                          `✅ Successful Grows: ${successfulGrows}\n` +
+                          `💰 Total Points Earned: ${totalSuccessPoints.toLocaleString()}\n` +
+                          `📊 Successful Accounts:\n${successfulAccountsWithPoints.map(acc => 
+                            `- ${acc.username}: ${acc.points.toLocaleString()} points`
+                          ).join('\n')}\n\n` +
+                          `❌ Failed Grows: ${failedAccounts.length}\n` +
+                          `💔 Total Points Lost: ${totalFailedPoints.toLocaleString()}\n` +
+                          `📋 Failed Accounts:\n${failedAccountsWithPoints.map(acc => 
+                            `- ${acc.username}: ${acc.points.toLocaleString()} points`
+                          ).join('\n')}`;
+            
+            consolewithTime('DEBUG - Sending summary to Telegram...');
+            consolewithTime('DEBUG - Summary content:', summary);
+            
+            await sendTelegramMessage(summary, TELEGRAM_BOT_TOKEN_POINT);
             
             consolewithTime('Semua akun aktif telah terproses secara berurutan. Menunggu 1 jam untuk siklus berikutnya');
         }
@@ -420,7 +471,7 @@ async function executeGrowActions() {
         successfulGrows = 0;
         failedAccounts = [];
         
-        await new Promise(resolve => setTimeout(resolve, 1800000)); // Wait 1 hour before next cycle
+        await new Promise(resolve => setTimeout(resolve, 3600000)); // Wait 1 hour before next cycle
     }
 }
 
@@ -521,23 +572,25 @@ async function getLoopCount(account, retryOnFailure = true) {
 }
 
 async function executeGrowAction(account) {
-  const axiosInstances = createAxiosInstance(account.proxy);
-  try {
-    consolewithTime(`${account.userName || 'User'} Executing Grow Action...`);
-    const response = await makeRequestWithProxyFallback(REQUEST_URL, executeGrowPayload, account, axiosInstances);
-    
-    const result = response.data?.data?.executeGrowAction;
-    if (result) {
-      consolewithTime(`${account.userName || 'User'} Grow Success - Total Value: ${result.totalValue}, Multiply Rate: ${result.multiplyRate}`);
-      return result.totalValue;
-    } else {
-      consolewithTime(`${account.userName || 'User'} Grow Failed`);
-      return null;
+    const axiosInstances = createAxiosInstance(account.proxy);
+    try {
+        consolewithTime(`${account.userName || 'User'} Executing Grow Action...`);
+        const response = await makeRequestWithProxyFallback(REQUEST_URL, executeGrowPayload, account, axiosInstances);
+        
+        const result = response.data?.data?.executeGrowAction;
+        consolewithTime(`DEBUG - Raw grow response for ${account.userName}:`, result);
+        
+        if (result) {
+            consolewithTime(`${account.userName || 'User'} Grow Success - Total Value: ${result.totalValue}, Multiply Rate: ${result.multiplyRate}`);
+            return result.totalValue;
+        } else {
+            consolewithTime(`${account.userName || 'User'} Grow Failed - No result data`);
+            return null;
+        }
+    } catch (error) {
+        consolewithTime(`${account.userName || 'User'} Error executing grow: ${error.message}`);
+        return null;
     }
-  } catch (error) {
-    consolewithTime(`${account.userName || 'User'} Error executing grow: ${error.message}`);
-    return null;
-  }
 }
 
 async function getCurrentUserStatus(account) {
