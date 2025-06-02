@@ -374,8 +374,7 @@ async function processAccount(account) {
         consolewithTime(`DEBUG - Grow result for ${account.userName}:`, result);
         
         if (result) {
-            successfulGrows++;
-            consolewithTime(`${account.userName || 'User'} Grow berhasil! Total grow berhasil: ${successfulGrows}`);
+            consolewithTime(`${account.userName || 'User'} Grow berhasil!`);
             const status = await getCurrentUserStatus(account);
             await saveUserStatusToFile(account.userName, status, result);
             return { success: true, points: result };
@@ -387,8 +386,6 @@ async function processAccount(account) {
             return { success: false, points: 0 };
         }
         
-        // Add random delay between grows
-        await new Promise(resolve => setTimeout(resolve, getRandomDelay(MIN_DELAY_BETWEEN_GROWS, MAX_DELAY_BETWEEN_GROWS)));
     } else {
         consolewithTime(`${account.userName || 'User'} Tidak ada grow yang tersedia (Count: ${loopCount})`);
         return { success: false, points: 0 };

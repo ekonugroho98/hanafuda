@@ -338,8 +338,8 @@ async function withRetry(fn, maxRetries = 3, baseDelay = 5000) {
 }
 
 async function processTransactions(accountData, transactionCount, amountInEther) {
-  if (!accountData.isActive) {
-    logWithTimestamp(`Account ${accountData.userName} is disabled. Skipping...`);
+  if (!accountData.isActiveDeposit) {
+    logWithTimestamp(`Account ${accountData.userName} is disabled for deposits. Skipping...`);
     return;
   }
 
@@ -408,16 +408,16 @@ async function processTransactions(accountData, transactionCount, amountInEther)
     }
 
     if (allTransactionsFailedDueToFunds) {
-      logWithTimestamp(`All transactions failed due to insufficient funds for ${userName}. Disabling account in config.`);
+      logWithTimestamp(`All transactions failed due to insufficient funds for ${userName}. Disabling account deposits in config.`);
       const existingConfig = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
       const accountIndex = existingConfig.findIndex(acc => acc.privateKey === accountData.privateKey);
 
       if (accountIndex !== -1) {
-        existingConfig[accountIndex].isActive = false;
+        existingConfig[accountIndex].isActiveDeposit = false;
         updateConfigFile(existingConfig);
-        logWithTimestamp(`Account ${userName} marked as inactive in config.json`);
+        logWithTimestamp(`Account ${userName} marked as inactive for deposits in config.json`);
       } else {
-        logWithTimestamp(`Could not find account ${userName} in config to disable`);
+        logWithTimestamp(`Could not find account ${userName} in config to disable deposits`);
       }
     }
 
