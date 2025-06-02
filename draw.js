@@ -49,14 +49,9 @@ function getPlatformFromUserAgent(userAgent) {
 }
 
 const REQUEST_URL = 'https://hanafuda-backend-app-520478841386.us-central1.run.app/graphql';
-const REFRESH_URL = 'https://securetoken.googleapis.com/v1/token?key=AIzaSyDipzN0VRfTPnMGhQ5PSzO27Cxm3DohJGY';
 const CONFIG = './config.json';
 
 let accounts = [];
-
-// Add delays between token refreshes
-const TOKEN_REFRESH_COOLDOWN = 5 * 60 * 1000; // 5 minutes
-let lastTokenRefresh = 0;
 
 // Fungsi untuk memuat config dari file
 function loadConfig() {
@@ -71,14 +66,14 @@ function loadConfig() {
           authToken: tokensData.authToken,
           userAgent: getRandomUserAgent(),
           proxy: tokensData.proxy,
-          proxy2: tokensData.proxy2 // Tambahkan proxy cadangan
+          proxy2: tokensData.proxy2
         }];
       } else {
         accounts = Object.values(tokensData).map(account => ({
           ...account,
           userAgent: getRandomUserAgent(),
           proxy: account.proxy,
-          proxy2: account.proxy2 // Tambahkan proxy cadangan
+          proxy2: account.proxy2
         }));
       }
 
@@ -102,21 +97,6 @@ chokidar.watch(CONFIG).on('change', () => {
   loadConfig();
 });
 
-// Fungsi untuk mendapatkan accounts yang sudah termuat
-function getAccounts() {
-  return accounts;
-}
-
-function saveTokens(tokens) {
-  try {
-      fs.writeFileSync(CONFIG, JSON.stringify(tokens, null, 2));
-      consolewithTime('Tokens berhasil di update.');
-  } catch (error) {
-      consolewithTime(`Gagal update token: ${error.message}`);
-      process.exit(1);
-  }
-}
-
 function createAxiosInstance(proxyUrl, proxy2Url) {
   consolewithTime(`Menggunakan proxy utama: ${proxyUrl || 'Tidak ada'}`);
   return {
@@ -125,70 +105,6 @@ function createAxiosInstance(proxyUrl, proxy2Url) {
           timeout: 120000
       })
   };
-}
-
-async function refreshTokenHandler(account) {
-  const now = Date.now();
-  if (now - lastTokenRefresh < TOKEN_REFRESH_COOLDOWN) {
-    await new Promise(resolve => setTimeout(resolve, TOKEN_REFRESH_COOLDOWN - (now - lastTokenRefresh)));
-  }
-  lastTokenRefresh = Date.now();
-  consolewithTime(`Mencoba merefresh token untuk ${account.userName || 'Unknown'}...`);
-  const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
-
-  try {
-    const response = await axiosInstances.primary.post(REFRESH_URL, null, {
-      params: {
-        grant_type: 'refresh_token',
-        refresh_token: account.refreshToken,
-      },
-    });
-
-    const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
-    const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
-
-    if (index !== -1) {
-      // ✅ Hanya update authToken
-      existingTokens[index].authToken = `Bearer ${response.data.access_token}`;
-      saveTokens(existingTokens);
-      consolewithTime(`AuthToken diperbarui untuk ${account.userName || 'Unknown'}`);
-      return existingTokens[index].authToken;
-    } else {
-      consolewithTime('Akun tidak ditemukan dalam config!');
-      return false;
-    }
-
-  } catch (error) {
-    consolewithTime(`Gagal refresh token untuk ${account.userName || 'Unknown'}: ${error.message}`);
-
-    if (error.response?.status === 400) {
-      const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
-      const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
-      if (index !== -1) {
-        existingTokens[index].isActive = false;
-        saveTokens(existingTokens);
-        consolewithTime(`Akun ${account.userName || 'Unknown'} di-nonaktifkan (isActive = false)`);
-      }
-    }
-
-    if (error.response?.status === 429) { // Rate limit
-      consolewithTime(`Rate limit hit for ${account.userName}, waiting 15 minutes...`);
-      await new Promise(resolve => setTimeout(resolve, 15 * 60 * 1000));
-      return refreshTokenHandler(account);
-    }
-    if (error.response?.status === 403) { // Possible ban
-      consolewithTime(`Possible ban detected for ${account.userName}, marking as inactive`);
-      const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
-      const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
-      if (index !== -1) {
-        existingTokens[index].isActive = false;
-        saveTokens(existingTokens);
-      }
-      return false;
-    }
-
-    return false;
-  }
 }
 
 // GraphQL Payloads
@@ -270,8 +186,8 @@ async function getCurrentUser(account) {
       const response = await makeRequestWithProxyFallback(REQUEST_URL, currentUserPayload, account, axiosInstances);
       const userName = response.data?.data?.currentUser?.name;
       if (userName) {
-          account.userName = account.userName; // Simpan nama pengguna ke objek account
-          return account.userName;
+          account.userName = userName;
+          return userName;
       } else {
           throw new Error('User name not found in response');
       }
@@ -281,12 +197,11 @@ async function getCurrentUser(account) {
   }
 }
 
-async function getLoopCount(account, retryOnFailure = true) {
+async function getLoopCount(account) {
   const axiosInstances = createAxiosInstance(account.proxy, account.proxy2);
   try {
       consolewithTime(`${account.userName || 'User'} Memeriksa draw yang tersedia...`);
       const response = await makeRequestWithProxyFallback(REQUEST_URL, getGardenPayload, account, axiosInstances);
-      consolewithTime(`Response from server: ${JSON.stringify(response.data)}`);
       const gardenRewardActionCount = response.data?.data?.getGardenForCurrentUser?.gardenStatus?.gardenRewardActionCount;
 
       if (typeof gardenRewardActionCount === 'number') {
@@ -296,14 +211,7 @@ async function getLoopCount(account, retryOnFailure = true) {
           throw new Error('Invalid gardenRewardActionCount in response');
       }
   } catch (error) {
-      consolewithTime(`${account.userName || 'User'} Token Expired! Error: ${error.message}`);
-      if (retryOnFailure) {
-          const newAuthToken = await refreshTokenHandler(account);
-          if (newAuthToken) {
-              account.authToken = newAuthToken;
-              return getLoopCount(account, false);
-          }
-      }
+      consolewithTime(`${account.userName || 'User'} Error: ${error.message}`);
       return 0;
   }
 }
@@ -333,19 +241,16 @@ async function initiateDrawAction(account) {
   }
 }
 
-// Add random delays to make behavior more human-like
 function getRandomDelay(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
 async function processAccount(account) {
-    // Tambahan pengecekan isActive di awal fungsi
     if (account.isActive === false) {
       consolewithTime(`Akun ${account.userName || 'Unknown'} dilewati karena isActive: false`);
       return;
     }
   
-    // Pastikan nama pengguna diambil terlebih dahulu
     if (!account.userName) {
       await getCurrentUser(account);
     }
@@ -357,7 +262,6 @@ async function processAccount(account) {
       const cardsToDrawPerAction = 10;
       const totalActions = Math.floor(loopCount / cardsToDrawPerAction) + (loopCount % cardsToDrawPerAction ? 1 : 0);
       
-      // Proses draw secara berurutan untuk akun ini
       for (let i = 0; i < totalActions; i++) {
         const currentActionCount = Math.min(cardsToDrawPerAction, loopCount - (i * cardsToDrawPerAction));
         consolewithTime(`${account.userName || 'User'} Memulai Membuka ${currentActionCount} kartu pada aksi ${i + 1}/${totalActions}`);
@@ -380,30 +284,28 @@ async function processAccount(account) {
     }
 }
   
-  async function executeGardenRewardActions() {
-    while (true) {
-      consolewithTime('Memulai draw untuk semua akun secara berurutan...');
-      loadConfig();
-      
-      // Filter hanya akun yang isActive nya true
-      const activeAccounts = accounts.filter(account => account.isActive !== false);
-      
-      if (activeAccounts.length === 0) {
-        consolewithTime('Tidak ada akun dengan isActive: true yang tersedia untuk diproses.');
-      } else {
-        for (let account of activeAccounts) {
-          consolewithTime(`Memproses akun: ${account.userName || 'Unknown User'}...`);
-          await processAccount(account);
-          consolewithTime(`Selesai memproses akun: ${account.userName || 'Unknown User'}`);
-          await new Promise(resolve => setTimeout(resolve, getRandomDelay(5000, 10000)));
-        }
-        consolewithTime('Semua akun aktif telah terproses secara berurutan. Menunggu 1 jam untuk siklus berikutnya');
+async function executeGardenRewardActions() {
+  while (true) {
+    consolewithTime('Memulai draw untuk semua akun secara berurutan...');
+    loadConfig();
+    
+    const activeAccounts = accounts.filter(account => account.isActive !== false);
+    
+    if (activeAccounts.length === 0) {
+      consolewithTime('Tidak ada akun dengan isActive: true yang tersedia untuk diproses.');
+    } else {
+      for (let account of activeAccounts) {
+        consolewithTime(`Memproses akun: ${account.userName || 'Unknown User'}...`);
+        await processAccount(account);
+        consolewithTime(`Selesai memproses akun: ${account.userName || 'Unknown User'}`);
+        await new Promise(resolve => setTimeout(resolve, getRandomDelay(5000, 10000)));
       }
-      
-      await new Promise(resolve => setTimeout(resolve, 3600000)); // Tunggu 1 jam sebelum memulai siklus berikutnya
+      consolewithTime('Semua akun aktif telah terproses secara berurutan. Menunggu 1 jam untuk siklus berikutnya');
     }
+    
+    await new Promise(resolve => setTimeout(resolve, 3600000)); // Tunggu 1 jam sebelum memulai siklus berikutnya
   }
-  
+}
 
 printBanner();
 executeGardenRewardActions();
