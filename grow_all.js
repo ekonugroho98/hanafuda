@@ -264,7 +264,7 @@ async function refreshTokenHandler(account) {
                 existingTokens[index].isActive = false;
                 saveTokens(existingTokens);
             }
-            return false;
+            return { deactivated: true, reason: 'Account banned (403 error)' };
         }
 
         if (error.response?.status === 400) {
@@ -275,6 +275,7 @@ async function refreshTokenHandler(account) {
                 saveTokens(existingTokens);
                 consolewithTime(`Akun ${account.userName || 'Unknown'} di-nonaktifkan (isActive = false)`);
             }
+            return { deactivated: true, reason: 'Account deactivated (400 error)' };
         }
 
         return false;
@@ -357,7 +358,7 @@ async function getCurrentUser(account) {
 async function processAccount(account) {
     if (account.isActive === false) {
         consolewithTime(`Akun ${account.userName || 'Unknown'} dilewati karena isActive: false`);
-        return { success: false, points: 0 };
+        return { success: false, deactivated: true, reason: 'Account was initially inactive' };
     }
 
     if (!account.userName) {
@@ -405,6 +406,7 @@ async function executeGrowActions() {
         let totalFailedPoints = 0;
         let failedAccountsWithPoints = [];
         let successfulAccountsWithPoints = [];
+        let deactivatedAccounts = [];
         
         consolewithTime(`Total akun aktif: ${activeAccounts.length}`);
         
@@ -425,6 +427,12 @@ async function executeGrowActions() {
                         points: result.points || 0
                     });
                     consolewithTime(`DEBUG - Success for ${account.userName}: ${result.points} points`);
+                } else if (result && result.deactivated) {
+                    deactivatedAccounts.push({
+                        username: account.userName,
+                        reason: result.reason || 'Account deactivated during process'
+                    });
+                    consolewithTime(`DEBUG - Account deactivated during process: ${account.userName} - ${result.reason}`);
                 } else {
                     failedAccounts.push(account.userName);
                     totalFailedPoints += result?.points || 0;
@@ -446,6 +454,7 @@ async function executeGrowActions() {
             consolewithTime(`DEBUG - Total success points: ${totalSuccessPoints}`);
             consolewithTime(`DEBUG - Failed accounts: ${failedAccounts.length}`);
             consolewithTime(`DEBUG - Total failed points: ${totalFailedPoints}`);
+            consolewithTime(`DEBUG - Deactivated accounts: ${deactivatedAccounts.length}`);
             
             // Send detailed summary to Telegram
             const summary = `🌱 Grow Summary Report 🌱\n\n` +
@@ -458,6 +467,10 @@ async function executeGrowActions() {
                           `💔 Total Points Lost: ${totalFailedPoints.toLocaleString()}\n` +
                           `📋 Failed Accounts:\n${failedAccountsWithPoints.map(acc => 
                             `- ${acc.username}: ${acc.points.toLocaleString()} points`
+                          ).join('\n')}\n\n` +
+                          `🚫 Deactivated Accounts: ${deactivatedAccounts.length}\n` +
+                          `📝 Deactivated List:\n${deactivatedAccounts.map(acc => 
+                            `- ${acc.username}: ${acc.reason}`
                           ).join('\n')}`;
             
             consolewithTime('DEBUG - Sending summary to Telegram...');
