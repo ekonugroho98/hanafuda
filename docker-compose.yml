@@ -6,6 +6,7 @@ services:
     command: ["node", "draw.js"]
     volumes:
       - .:/app
+      - /app/node_modules
     working_dir: /app
     restart: always
 
@@ -15,6 +16,7 @@ services:
     command: ["node", "grow_all.js"]
     volumes:
       - .:/app
+      - /app/node_modules
     working_dir: /app
     restart: always
 
@@ -24,6 +26,7 @@ services:
     command: ["node", "deposit.js"]
     volumes:
       - .:/app
+      - /app/node_modules
     working_dir: /app
     restart: always
 
