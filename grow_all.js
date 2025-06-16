@@ -53,14 +53,35 @@ function getWIBTimestamp() {
     return now.toISOString().split('.')[0].replace('T', ' ');
 }
 
-function consolewithTime(word) {
-  const now = new Date().toISOString().split('.')[0].replace('T', ' ');
-  console.log(`[${now}] ${word}`);
+function consolewithTime(message) {
+    const timestamp = getWIBTimestamp();
+    console.log(`[${timestamp} WIB] ${message}`);
 }
 
 function getRandomUserAgent() {
-  const randomIndex = Math.floor(Math.random() * USER_AGENTS.length);
-  return USER_AGENTS[randomIndex];
+  const USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 12_0_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 14; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 11_6_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Fedora; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:134.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 12; SM-A525F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Linux; Android 11; Redmi Note 9 Pro) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Mobile Safari/537.36",
+    "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
+  ];
+  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 }
 
 function getPlatformFromUserAgent(userAgent) {
@@ -77,6 +98,21 @@ const REFRESH_URL = 'https://securetoken.googleapis.com/v1/token?key=AIzaSyDipzN
 
 const CONFIG = './config.json';
 let accounts = [];
+
+// Initialize config loading and watching
+function initializeConfig() {
+    // Initial load
+    loadConfig();
+    
+    // Set up config file watching
+    chokidar.watch(CONFIG).on('change', () => {
+        consolewithTime('Config file changed, reloading...');
+        loadConfig();
+    });
+}
+
+// Call initialization
+initializeConfig();
 
 // Fungsi untuk memuat config untuk multiple akun (tanpa memeriksa refreshToken)
 function loadConfig() {
@@ -114,44 +150,6 @@ function loadConfig() {
     return false;
   }
 }
-
-// Fungsi untuk memantau perubahan config secara otomatis
-function watchConfig() {
-  chokidar.watch(CONFIG).on('change', () => {
-    consolewithTime('Config file changed, waiting for current cycle to complete...');
-    configNeedsReload = true;
-  });
-}
-
-// Fungsi untuk mencetak log dengan waktu
-function consolewithTime(message) {
-    const timestamp = getWIBTimestamp();
-    console.log(`[${timestamp} WIB] ${message}`);
-}
-
-// Fungsi untuk mendapatkan User-Agent secara acak
-function getRandomUserAgent() {
-  const USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
-  ];
-  return USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
-}
-
-// First load
-loadConfig();
-watchConfig();
-
-// Second load (duplicate)
-loadConfig();
-
-// Third load (duplicate)
-chokidar.watch(CONFIG).on('change', () => {
-  consolewithTime('Config file changed, reloading...');
-  loadConfig();
-});
 
 // Fungsi untuk menampilkan semua akun yang dimuat
 function showAccounts() {
@@ -536,10 +534,9 @@ async function executeGrowActions() {
                           ).join('\n')}\n\n` +
                           
                           `📋 Account Status Summary:\n${accountStatuses.map(status => 
-                            `- ${status.username}:\n` +
+                            `- 🌟 ${status.username}:\n` +
                             `  • Total Points: ${status.totalPoints ? status.totalPoints.toLocaleString() : 'N/A'}\n` +
-                            `  • Deposit Count: ${status.depositCount || 'N/A'}\n` +
-                            `  • Address: ${status.address || 'N/A'}`
+                            `  • Deposit Count: ${status.depositCount || 'N/A'}`
                           ).join('\n')}\n\n` +
                           
                           `⏱️ Cycle Duration: ${Math.floor((Date.now() - cycleStartTime)/1000)} seconds`;
@@ -574,22 +571,15 @@ async function saveUserStatusToFile(userName, status, totalResult) {
 
   const safeUserName = (userName || 'unknown_user').replace(/[^a-zA-Z0-9]/g, '_');
   const fileName = `${folderName}/${safeUserName}_status.txt`;
-  const timestamp = new Date().toISOString().split('.')[0].replace('T', ' ');
+  const timestamp = getWIBTimestamp();
   
-  const formattedTotalPoint = status.totalPoint.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+  const formattedTotalPoint = status.totalPoint ? status.totalPoint.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.') : 'N/A';
   
-  let content = `[${timestamp}] Total Points = ${formattedTotalPoint}, Deposit Count = ${status.depositCount}`;
+  let content = `[${timestamp} WIB] Total Points = ${formattedTotalPoint}, Deposit Count = ${status.depositCount || 'N/A'}`;
   if (status.address) {
     content += `, Address = ${status.address}`;
   }
   content += '\n';
-
-  const telegramMessage = `[${timestamp}] ${userName || 'User'} - Grow Success\n` +
-                        `Total Grow: ${totalResult}\n` +
-                        `Total Points: ${formattedTotalPoint}\n` +
-                        `Deposit Count: ${status.depositCount}`;
-  
-  await sendTelegramMessage(telegramMessage, TELEGRAM_BOT_TOKEN_POINT);
 
   try {
     fs.appendFileSync(fileName, content);
