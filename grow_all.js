@@ -35,13 +35,22 @@ const MIN_DELAY_BETWEEN_GROWS = 2000; // 2 seconds
 const MAX_DELAY_BETWEEN_GROWS = 5000; // 5 seconds
 const MIN_DELAY_BETWEEN_ACCOUNTS = 5000; // 5 seconds
 const MAX_DELAY_BETWEEN_ACCOUNTS = 10000; // 10 seconds
+const CYCLE_DELAY = 3600000; // 1 hour in milliseconds
 let lastTokenRefresh = 0;
+let lastCycleEnd = 0;
 
 let isProcessingAccounts = false;
 let configNeedsReload = false;
 
 function printBanner() {
   console.log("Hanafuda Bot Auto Grow");
+}
+
+function getWIBTimestamp() {
+    const now = new Date();
+    // Add 7 hours for WIB (UTC+7)
+    now.setHours(now.getHours() + 7);
+    return now.toISOString().split('.')[0].replace('T', ' ');
 }
 
 function consolewithTime(word) {
@@ -116,8 +125,8 @@ function watchConfig() {
 
 // Fungsi untuk mencetak log dengan waktu
 function consolewithTime(message) {
-  const now = new Date().toISOString().split('.')[0].replace('T', ' ');
-  console.log(`[${now}] ${message}`);
+    const timestamp = getWIBTimestamp();
+    console.log(`[${timestamp} WIB] ${message}`);
 }
 
 // Fungsi untuk mendapatkan User-Agent secara acak
@@ -227,12 +236,31 @@ async function refreshTokenHandler(account) {
     const axiosInstances = createAxiosInstance(account.proxy);
 
     try {
+        // Validate refresh token
+        if (!account.refreshToken) {
+            consolewithTime(`Error: No refresh token found for ${account.userName || 'Unknown'}`);
+            return false;
+        }
+
+        consolewithTime(`DEBUG: Using refresh token: ${account.refreshToken.substring(0, 20)}...`);
+        
         const response = await axiosInstances.primary.post(REFRESH_URL, null, {
             params: {
                 grant_type: 'refresh_token',
                 refresh_token: account.refreshToken,
             },
         });
+
+        // Log full response for debugging
+        consolewithTime(`DEBUG: Refresh token response status: ${response.status}`);
+        consolewithTime(`DEBUG: Refresh token response data: ${JSON.stringify(response.data)}`);
+
+        // Validate response
+        if (!response.data || !response.data.access_token) {
+            consolewithTime(`Error: Invalid response from refresh token request for ${account.userName || 'Unknown'}`);
+            consolewithTime(`Error details: ${JSON.stringify(response.data)}`);
+            return false;
+        }
 
         const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
         const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
@@ -241,7 +269,25 @@ async function refreshTokenHandler(account) {
             existingTokens[index].authToken = `Bearer ${response.data.access_token}`;
             saveTokens(existingTokens);
             consolewithTime(`AuthToken diperbarui untuk ${account.userName || 'Unknown'}`);
-            return existingTokens[index].authToken;
+            
+            // Verify the new token works
+            try {
+                const testResponse = await makeRequestWithProxyFallback(REQUEST_URL, currentUserPayload, existingTokens[index], axiosInstances);
+                if (testResponse.data?.data?.currentUser) {
+                    consolewithTime(`Token verification successful for ${account.userName || 'Unknown'}`);
+                    return existingTokens[index].authToken;
+                } else {
+                    consolewithTime(`Token verification failed for ${account.userName || 'Unknown'}`);
+                    consolewithTime(`Verification response: ${JSON.stringify(testResponse.data)}`);
+                    return false;
+                }
+            } catch (error) {
+                consolewithTime(`Token verification error for ${account.userName || 'Unknown'}: ${error.message}`);
+                if (error.response) {
+                    consolewithTime(`Verification error response: ${JSON.stringify(error.response.data)}`);
+                }
+                return false;
+            }
         } else {
             consolewithTime('Akun tidak ditemukan dalam config!');
             return false;
@@ -249,6 +295,15 @@ async function refreshTokenHandler(account) {
 
     } catch (error) {
         consolewithTime(`Gagal refresh token untuk ${account.userName || 'Unknown'}: ${error.message}`);
+        
+        // Log detailed error information
+        if (error.response) {
+            consolewithTime(`Error response status: ${error.response.status}`);
+            consolewithTime(`Error response data: ${JSON.stringify(error.response.data)}`);
+        }
+        if (error.request) {
+            consolewithTime(`Error request: ${JSON.stringify(error.request)}`);
+        }
 
         if (error.response?.status === 429) { // Rate limit
             consolewithTime(`Rate limit hit for ${account.userName}, waiting 15 minutes...`);
@@ -268,14 +323,14 @@ async function refreshTokenHandler(account) {
         }
 
         if (error.response?.status === 400) {
+            consolewithTime(`Invalid refresh token for ${account.userName}, marking as inactive`);
             const existingTokens = JSON.parse(fs.readFileSync(CONFIG, 'utf-8'));
             const index = existingTokens.findIndex(token => token.privateKey === account.privateKey);
             if (index !== -1) {
                 existingTokens[index].isActive = false;
                 saveTokens(existingTokens);
-                consolewithTime(`Akun ${account.userName || 'Unknown'} di-nonaktifkan (isActive = false)`);
             }
-            return { deactivated: true, reason: 'Account deactivated (400 error)' };
+            return { deactivated: true, reason: 'Invalid refresh token (400 error)' };
         }
 
         return false;
@@ -395,6 +450,7 @@ async function processAccount(account) {
 // Improve executeGrowActions with better account handling and delays
 async function executeGrowActions() {
     while (true) {
+        const cycleStartTime = Date.now();
         consolewithTime('Memulai grow untuk semua akun secara berurutan...');
         loadConfig();
         
@@ -404,6 +460,7 @@ async function executeGrowActions() {
         let failedAccountsWithPoints = [];
         let successfulAccountsWithPoints = [];
         let deactivatedAccounts = [];
+        let accountStatuses = [];
         
         consolewithTime(`Total akun aktif: ${activeAccounts.length}`);
         
@@ -440,48 +497,70 @@ async function executeGrowActions() {
                     consolewithTime(`DEBUG - Failed for ${account.userName}: ${result?.points || 0} points`);
                 }
                 
+                // Get and store account status
+                const status = await getCurrentUserStatus(account);
+                if (status) {
+                    accountStatuses.push({
+                        username: account.userName,
+                        totalPoints: status.totalPoint,
+                        depositCount: status.depositCount,
+                        address: status.address
+                    });
+                }
+                
                 consolewithTime(`Selesai memproses akun: ${account.userName || 'Unknown User'}`);
                 
                 // Add random delay between accounts
                 await new Promise(resolve => setTimeout(resolve, getRandomDelay(MIN_DELAY_BETWEEN_ACCOUNTS, MAX_DELAY_BETWEEN_ACCOUNTS)));
             }
             
-            consolewithTime('DEBUG - Preparing summary report...');
-            consolewithTime(`DEBUG - Successful grows: ${successfulGrows}`);
-            consolewithTime(`DEBUG - Total success points: ${totalSuccessPoints}`);
-            consolewithTime(`DEBUG - Failed accounts: ${failedAccounts.length}`);
-            consolewithTime(`DEBUG - Total failed points: ${totalFailedPoints}`);
-            consolewithTime(`DEBUG - Deactivated accounts: ${deactivatedAccounts.length}`);
-            
-            // Send detailed summary to Telegram
-            const summary = `🌱 Grow Summary Report 🌱\n\n` +
+            // Prepare detailed summary with WIB timestamp
+            const timestamp = getWIBTimestamp();
+            const summary = `🌱 Grow Summary Report (${timestamp} WIB) 🌱\n\n` +
+                          `📊 Overall Statistics:\n` +
                           `✅ Successful Grows: ${successfulGrows}\n` +
                           `💰 Total Points Earned: ${totalSuccessPoints.toLocaleString()}\n` +
-                          `📊 Successful Accounts:\n${successfulAccountsWithPoints.map(acc => 
-                            `- ${acc.username}: ${acc.points.toLocaleString()} points`
-                          ).join('\n')}\n\n` +
                           `❌ Failed Grows: ${failedAccounts.length}\n` +
-                          `💔 Total Points Lost: ${totalFailedPoints.toLocaleString()}\n` +
-                          `📋 Failed Accounts:\n${failedAccountsWithPoints.map(acc => 
+                          `💔 Total Points Lost: ${totalFailedPoints.toLocaleString()}\n\n` +
+                          
+                          `📈 Successful Accounts:\n${successfulAccountsWithPoints.map(acc => 
                             `- ${acc.username}: ${acc.points.toLocaleString()} points`
                           ).join('\n')}\n\n` +
-                          `🚫 Deactivated Accounts: ${deactivatedAccounts.length}\n` +
-                          `📝 Deactivated List:\n${deactivatedAccounts.map(acc => 
+                          
+                          `📉 Failed Accounts:\n${failedAccountsWithPoints.map(acc => 
+                            `- ${acc.username}: ${acc.points.toLocaleString()} points`
+                          ).join('\n')}\n\n` +
+                          
+                          `🚫 Deactivated Accounts:\n${deactivatedAccounts.map(acc => 
                             `- ${acc.username}: ${acc.reason}`
-                          ).join('\n')}`;
-            
-            consolewithTime('DEBUG - Sending summary to Telegram...');
-            consolewithTime('DEBUG - Summary content:', summary);
+                          ).join('\n')}\n\n` +
+                          
+                          `📋 Account Status Summary:\n${accountStatuses.map(status => 
+                            `- ${status.username}:\n` +
+                            `  • Total Points: ${status.totalPoints.toLocaleString()}\n` +
+                            `  • Deposit Count: ${status.depositCount}\n` +
+                            `  • Address: ${status.address || 'N/A'}`
+                          ).join('\n')}\n\n` +
+                          
+                          `⏱️ Cycle Duration: ${Math.floor((Date.now() - cycleStartTime)/1000)} seconds`;
             
             await sendTelegramMessage(summary, TELEGRAM_BOT_TOKEN_POINT);
-            
-            consolewithTime('Semua akun aktif telah terproses secara berurutan. Menunggu 1 jam untuk siklus berikutnya');
         }
+        
+        const cycleEndTime = Date.now();
+        const cycleDuration = cycleEndTime - cycleStartTime;
+        lastCycleEnd = cycleEndTime;
+        
+        // Calculate remaining time to maintain 1-hour cycle
+        const remainingTime = Math.max(0, CYCLE_DELAY - cycleDuration);
+        
+        consolewithTime(`Siklus selesai dalam ${Math.floor(cycleDuration/1000)} detik`);
+        consolewithTime(`Menunggu ${Math.floor(remainingTime/1000)} detik untuk siklus berikutnya`);
         
         successfulGrows = 0;
         failedAccounts = [];
         
-        await new Promise(resolve => setTimeout(resolve, 3600000)); // Wait 1 hour before next cycle
+        await new Promise(resolve => setTimeout(resolve, remainingTime));
     }
 }
 
