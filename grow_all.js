@@ -537,8 +537,8 @@ async function executeGrowActions() {
                           
                           `📋 Account Status Summary:\n${accountStatuses.map(status => 
                             `- ${status.username}:\n` +
-                            `  • Total Points: ${status.totalPoints.toLocaleString()}\n` +
-                            `  • Deposit Count: ${status.depositCount}\n` +
+                            `  • Total Points: ${status.totalPoints ? status.totalPoints.toLocaleString() : 'N/A'}\n` +
+                            `  • Deposit Count: ${status.depositCount || 'N/A'}\n` +
                             `  • Address: ${status.address || 'N/A'}`
                           ).join('\n')}\n\n` +
                           
