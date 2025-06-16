@@ -300,7 +300,8 @@ async function refreshTokenHandler(account) {
             consolewithTime(`Error response data: ${JSON.stringify(error.response.data)}`);
         }
         if (error.request) {
-            consolewithTime(`Error request: ${JSON.stringify(error.request)}`);
+            // Safely log request error without circular reference
+            consolewithTime(`Error request details: ${error.message}`);
         }
 
         if (error.response?.status === 429) { // Rate limit
@@ -331,6 +332,8 @@ async function refreshTokenHandler(account) {
             return { deactivated: true, reason: 'Invalid refresh token (400 error)' };
         }
 
+        // For other errors (like 502), just return false and continue with next account
+        consolewithTime(`Continuing with next account after error for ${account.userName}`);
         return false;
     }
 }
