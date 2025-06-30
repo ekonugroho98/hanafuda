@@ -35,7 +35,7 @@ const MIN_DELAY_BETWEEN_GROWS = 2000; // 2 seconds
 const MAX_DELAY_BETWEEN_GROWS = 5000; // 5 seconds
 const MIN_DELAY_BETWEEN_ACCOUNTS = 5000; // 5 seconds
 const MAX_DELAY_BETWEEN_ACCOUNTS = 10000; // 10 seconds
-const CYCLE_DELAY = 3600000; // 1 hour in milliseconds
+const CYCLE_DELAY = 4200000; // 70 minutes in milliseconds
 let lastTokenRefresh = 0;
 let lastCycleEnd = 0;
 
